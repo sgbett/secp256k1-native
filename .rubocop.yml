@@ -1,0 +1,14 @@
+AllCops:
+  TargetRubyVersion: 2.7
+  NewCops: enable
+  Exclude:
+    - 'ext/**/*'
+    - 'vendor/**/*'
+    - 'tmp/**/*'
+    - 'pkg/**/*'
+
+Style/StringLiterals:
+  EnforcedStyle: single_quotes
+
+Style/FrozenStringLiteralComment:
+  Enabled: true
