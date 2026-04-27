@@ -7,3 +7,5 @@ tmp/
 pkg/
 lib/secp256k1_native.*
 .bundle/
+CLAUDE.md
+.claude/
