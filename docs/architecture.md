@@ -1,6 +1,6 @@
 # Architecture
 
-Internal implementation details for contributors and auditors. For installation and usage, see the [README](../README.md).
+Internal implementation details for contributors and auditors. For installation and usage, see the [home page](index.md).
 
 ## Dual-implementation pattern
 

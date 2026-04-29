@@ -1,0 +1,56 @@
+site_name: secp256k1-native
+site_description: Pure native C secp256k1 implementation for Ruby
+site_url: https://sgbett.github.io/secp256k1-native/
+repo_url: https://github.com/sgbett/secp256k1-native
+repo_name: sgbett/secp256k1-native
+
+theme:
+  name: material
+  palette:
+    - media: '(prefers-color-scheme: light)'
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: '(prefers-color-scheme: dark)'
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+nav:
+  - Home: index.md
+  - Introduction: introduction.md
+  - Architecture: architecture.md
+  - Security: security.md
+  - Performance: performance.md
+  - Design Rationale: design.md
+  - API Reference:
+      - Overview: reference/index.md
+      - Secp256k1: reference/Secp256k1.md
+      - Secp256k1::Point: reference/Secp256k1/Point.md

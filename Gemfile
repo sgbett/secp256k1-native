@@ -9,4 +9,6 @@ group :development do
   gem 'rake-compiler'
   gem 'rspec'
   gem 'rubocop'
+  gem 'yard'
+  gem 'yard-markdown'
 end

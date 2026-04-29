@@ -1,5 +1,7 @@
 # secp256k1-native
 
+> **Before using a custom cryptographic implementation, read the [Introduction](https://sgbett.github.io/secp256k1-native/introduction/) — it examines what the empirical evidence says about rolling your own crypto and where this gem sits in that landscape.**
+
 Pure native C secp256k1 implementation for Ruby (no libsecp256k1 dependency).
 
 Provides secp256k1 elliptic curve cryptography for Ruby — field arithmetic, scalar operations, Jacobian point arithmetic, and constant-time scalar multiplication — via an optional native C extension. The gem ships a pure-Ruby base layer that works out of the box on any Ruby 2.7+ platform, with the C extension as an optional accelerator (~22× speedup) that is silently skipped when unavailable.
@@ -95,12 +97,12 @@ The wNAF loop and ECDSA/Schnorr logic remain in Ruby, calling native primitives 
 
 ### Performance
 
-| Mode | Operations/sec (scalar multiplication) |
-|---|---|
-| Pure Ruby | ~100 |
-| Native C extension | ~2,277 |
+| Mode | Sign (ops/sec) | Verify (ops/sec) |
+|------|---------------|-----------------|
+| Pure Ruby | 100 | 97 |
+| C extension | 2,302 | 1,826 |
 
-The extension provides approximately 22× speedup for scalar multiplication — the dominant cost in signing, public key derivation, and Schnorr proof generation.
+The C extension provides ~23× speedup for signing and ~19× for verification — but performance is secondary to security. The primary purpose of the C extension is to provide **hardware-level constant-time guarantees** that Ruby's variable-width `Integer` internals cannot offer. Users handling secret key material should evaluate whether the pure-Ruby implementation is appropriate for their threat model. See [docs/performance.md](docs/performance.md) for detailed analysis.
 
 ## Building the native extension
 
