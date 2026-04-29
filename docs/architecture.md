@@ -18,7 +18,7 @@ end
 
 `method(m).to_proc` converts each C singleton method from `Secp256k1Native` to a Proc, stripping the receiver binding so it can be attached to `Secp256k1`. The replacement targets the singleton class directly — `module_function` is not called again, which would re-copy the private Ruby instance method back over the new definition.
 
-If the extension fails to load (`rescue LoadError`), the pure-Ruby implementations run silently with no configuration required.
+If the extension fails to load (`rescue LoadError`), the pure-Ruby implementations are used for most operations. However, `mul_ct` raises `InsecureOperationError` unless explicitly allowed — see [security](security.md#pure-ruby-safety-guard) for details.
 
 ## Internal representation (C extension)
 
@@ -32,9 +32,9 @@ Jacobian point operations call field primitives directly in C without crossing t
 
 Two strategies, chosen by security context (see [security](security.md) for safe usage guidance):
 
-**wNAF (windowed Non-Adjacent Form)** — variable-time, for public scalars. Window size 5, with a precomputed table cache. Used by `Point#mul`. Suitable for signature verification and other operations where the scalar is not secret.
+**Montgomery ladder** — constant-time, the safe default. Fixed 256 iterations with branchless conditional swap (`cswap`). Used by `Point#mul`. Suitable for all scalars, including secret ones (signing, key generation, ECDH).
 
-**Montgomery ladder** — constant-time, for secret scalars. Fixed 256 iterations with branchless conditional swap (`cswap`). Used by `Point#mul_ct`. Suitable for signing, key generation, and ECDH shared-secret derivation.
+**wNAF (windowed Non-Adjacent Form)** — variable-time, for public scalars only. Window size 5, with a precomputed table cache. Used by `Point#mul_vt`. Faster than the Montgomery ladder but leaks timing information about the scalar. Use only when the scalar is public (e.g., signature verification).
 
 ## wNAF precomputed table cache
 

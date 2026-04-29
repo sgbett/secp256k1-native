@@ -79,6 +79,6 @@ g = Secp256k1::Point.generator
 k = SecureRandom.random_number(Secp256k1::N - 1) + 1
 
 n = 100
-time = Benchmark.realtime { n.times { g.mul_ct(k) } }
-puts "#{(n / time).round(1)} scalar_multiply_ct ops/sec"
+time = Benchmark.realtime { n.times { g.mul(k) } }
+puts "#{(n / time).round(1)} mul ops/sec (constant-time)"
 ```

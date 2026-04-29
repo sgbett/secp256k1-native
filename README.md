@@ -4,7 +4,7 @@
 
 Pure native C secp256k1 implementation for Ruby (no libsecp256k1 dependency).
 
-Provides secp256k1 elliptic curve cryptography for Ruby — field arithmetic, scalar operations, Jacobian point arithmetic, and constant-time scalar multiplication — via an optional native C extension. The gem ships a pure-Ruby base layer that works out of the box on any Ruby 2.7+ platform, with the C extension as an optional accelerator (~22× speedup) that is silently skipped when unavailable.
+Provides secp256k1 elliptic curve cryptography for Ruby — field arithmetic, scalar operations, Jacobian point arithmetic, and constant-time scalar multiplication — via an optional native C extension. The gem ships a pure-Ruby base layer that works out of the box on any Ruby 2.7+ platform, with the C extension providing constant-time guarantees and ~22x acceleration when available.
 
 Used by the [bsv-ruby-sdk](https://github.com/sgbett/bsv-ruby-sdk) and suitable for any Ruby project requiring secp256k1 operations.
 
@@ -38,14 +38,14 @@ require 'secp256k1'
 # Generator point
 g = Secp256k1::Point.generator
 
-# Scalar multiplication (variable-time, for public scalars)
-scalar = 0xdeadbeef
-point = g.mul(scalar)
-puts point.x.to_s(16)
-
-# Constant-time scalar multiplication (for secret scalars)
+# Scalar multiplication (constant-time by default — safe for all scalars)
 secret = 0xcafebabe
-pubkey = g.mul_ct(secret)
+pubkey = g.mul(secret)
+puts pubkey.x.to_s(16)
+
+# Variable-time scalar multiplication (faster, for public scalars only)
+scalar = 0xdeadbeef
+point = g.mul_vt(scalar)
 
 # SEC1 encoding / decoding
 compressed = pubkey.to_octet_string(:compressed)    # 33 bytes
@@ -118,7 +118,7 @@ bundle exec rake compile
 
 The compiled bundle is placed at `lib/secp256k1_native.bundle` (macOS) or `lib/secp256k1_native.so` (Linux).
 
-`extconf.rb` checks for `__uint128_t` availability at configure time. If the type is absent, a no-op Makefile is generated and the extension is silently skipped. At runtime, `secp256k1.rb` wraps the `require` in a `rescue LoadError` — if the bundle is absent, the pure-Ruby implementation is used without any error.
+`extconf.rb` checks for `__uint128_t` availability at configure time. If the type is absent, a no-op Makefile is generated and the extension is skipped. At runtime, `secp256k1.rb` wraps the `require` in a `rescue LoadError` — if the bundle is absent, the pure-Ruby implementation is used for public-scalar operations. Constant-time operations (`mul_ct`) will raise `InsecureOperationError` unless explicitly allowed via `SECP256K1_ALLOW_PURE_RUBY_CT=1` or `Secp256k1.allow_pure_ruby_ct!`.
 
 ## Running tests
 

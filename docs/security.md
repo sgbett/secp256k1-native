@@ -4,24 +4,27 @@ Safe usage guide, constant-time properties, and threat model for this gem.
 
 ## API safety guide
 
-The `Point` class exposes two scalar multiplication methods. Choosing the wrong one leaks secret key material via timing side channels.
+The `Point` class exposes two scalar multiplication methods:
 
 | Method | Algorithm | Timing | Use for |
 |---|---|---|---|
-| `Point#mul(scalar)` | wNAF (window size 5) | **Variable-time** | Public scalars only: signature verification, computing known generator multiples |
-| `Point#mul_ct(scalar)` | Montgomery ladder | **Constant-time** | Secret scalars: signing, key generation, ECDH shared-secret derivation |
+| `Point#mul(scalar)` | Montgomery ladder | **Constant-time** | All scalars — the safe default |
+| `Point#mul_vt(scalar)` | wNAF (window size 5) | **Variable-time** | Public scalars only: signature verification, batch operations where speed matters |
 
-**Rule of thumb:** if the scalar is derived from a private key or nonce, use `mul_ct`. If the scalar is a public value (e.g., a hash used in verification), `mul` is safe and faster.
+`mul` is constant-time by default, matching OpenSSL's behaviour. The safe path is the easy path — you only need to think about the distinction if you need the ~2x speed advantage of `mul_vt` for public-scalar workloads.
+
+`mul_ct` is retained as a deprecated alias for `mul`.
 
 ```ruby
 g = Secp256k1::Point.generator
-pubkey = g.mul_ct(secret_key)       # secret key → constant-time
-point = pubkey.mul(public_hash)     # public value → variable-time OK
+pubkey = g.mul(secret_key)          # safe for secret scalars (constant-time)
+point = pubkey.mul(public_hash)     # safe for public scalars too (just slower)
+point = pubkey.mul_vt(public_hash)  # faster, but only when scalar is public
 ```
 
 ### Pure-Ruby safety guard
 
-`mul_ct` will raise `Secp256k1::InsecureOperationError` if the native C extension is not loaded. This prevents silent degradation to pure-Ruby arithmetic that cannot guarantee constant-time execution.
+`mul` will raise `Secp256k1::InsecureOperationError` if the native C extension is not loaded. This prevents silent degradation to pure-Ruby arithmetic that cannot guarantee constant-time execution. `mul_vt` is unaffected — it is explicitly variable-time and does not claim constant-time properties.
 
 To check whether the extension is active:
 
@@ -65,7 +68,7 @@ For production-grade side-channel resistance, use the native C extension. The pu
 
 ### Variable-time paths
 
-The wNAF scalar multiplication loop (`scalar_multiply_wnaf`) branches on scalar bits and uses a precomputed table with data-dependent lookups. It is explicitly variable-time. This is acceptable for public scalars (signature verification) but must never be used with secret scalars.
+The wNAF scalar multiplication loop (`scalar_multiply_wnaf`, exposed as `Point#mul_vt`) branches on scalar bits and uses a precomputed table with data-dependent lookups. It is explicitly variable-time. This is acceptable for public scalars (signature verification) but must never be used with secret scalars.
 
 ## Thread safety
 
@@ -75,7 +78,7 @@ This gem has **no thread synchronisation**. The wNAF precomputed table cache (`W
 
 **Under JRuby/TruffleRuby:** No GVL. Concurrent access to the cache would be unsafe without external synchronisation.
 
-**Recommendation:** If using this gem from multiple threads, protect calls to `Point#mul` with your own mutex. `Point#mul_ct` does not use the cache and is safe to call concurrently (it has no mutable shared state).
+**Recommendation:** If using this gem from multiple threads, protect calls to `Point#mul_vt` with your own mutex. `Point#mul` (constant-time, Montgomery ladder) does not use the cache and is safe to call concurrently.
 
 ## Platform and runtime support
 

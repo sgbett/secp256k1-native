@@ -249,7 +249,7 @@ RSpec.describe Secp256k1 do
       end
     end
 
-    describe '#mul' do
+    describe '#mul (constant-time, Montgomery ladder — safe default)' do
       let(:g) { described_class.generator }
 
       it '1 * G = G' do
@@ -297,55 +297,54 @@ RSpec.describe Secp256k1 do
       it 'infinity * scalar = infinity' do
         expect(described_class.infinity.mul(42).infinity?).to be true
       end
+
+      it 'agrees with mul_vt for all test scalars' do
+        [1, 2, 42, 0xDEADBEEFCAFEBABE, s::N - 1].each do |k|
+          expect(g.mul(k)).to eq(g.mul_vt(k))
+        end
+      end
     end
 
-    describe '#mul_ct (Montgomery ladder, constant-time)' do
+    describe '#mul_ct (deprecated alias for #mul)' do
       let(:g) { described_class.generator }
 
-      it 'produces the same result as mul for scalar 1' do
-        expect(g.mul_ct(1)).to eq(g.mul(1))
+      it 'is an alias for mul' do
+        expect(g.method(:mul_ct)).to eq(g.method(:mul))
       end
 
-      it 'produces the same result as mul for scalar 2' do
-        expect(g.mul_ct(2)).to eq(g.mul(2))
+      it 'produces the same result as mul' do
+        expect(g.mul_ct(42)).to eq(g.mul(42))
+      end
+    end
+
+    describe '#mul_vt (variable-time, wNAF — for public scalars only)' do
+      let(:g) { described_class.generator }
+
+      it '1 * G = G' do
+        expect(g.mul_vt(1)).to eq(g)
       end
 
-      it 'produces the same result as mul for a large scalar' do
-        k = 0xDEADBEEFCAFEBABE
-        expect(g.mul_ct(k)).to eq(g.mul(k))
+      it '0 * G = infinity' do
+        expect(g.mul_vt(0).infinity?).to be true
+      end
+
+      it 'N * G = infinity' do
+        expect(g.mul_vt(s::N).infinity?).to be true
       end
 
       it 'produces known 2*G coordinates' do
-        two_g = g.mul_ct(2)
+        two_g = g.mul_vt(2)
         expect(two_g.x).to eq(0xC6047F9441ED7D6D3045406E95C07CD85C778E4B8CEF3CA7ABAC09B95C709EE5)
         expect(two_g.y).to eq(0x1AE168FEA63DC339A3C58419466CEAEEF7F632653266D0E1236431A950CFE52A)
       end
 
-      it 'produces known 3*G coordinates' do
-        three_g = g.mul_ct(3)
-        expect(three_g.x).to eq(0xF9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE036F9)
-        expect(three_g.y).to eq(0x388F7B0F632DE8140FE337E62A37F3566500A99934C2231B6CB9FD7584B8E672)
-      end
-
-      it '0 * G = infinity' do
-        expect(g.mul_ct(0).infinity?).to be true
-      end
-
-      it 'N * G = infinity' do
-        expect(g.mul_ct(s::N).infinity?).to be true
-      end
-
-      it 'result is on the curve' do
-        result = g.mul_ct(0xABCDEF0123456789)
+      it 'produces result on the curve' do
+        result = g.mul_vt(0xDEADBEEF)
         expect(result.on_curve?).to be true
       end
 
-      it 'matches wNAF for the secp256k1 generator with scalar N-1' do
-        # This tests the edge case of the largest valid scalar
-        k = s::N - 1
-        ct = g.mul_ct(k)
-        vt = g.mul(k)
-        expect(ct).to eq(vt)
+      it 'infinity * scalar = infinity' do
+        expect(described_class.infinity.mul_vt(42).infinity?).to be true
       end
     end
 
@@ -392,12 +391,11 @@ RSpec.describe Secp256k1 do
       end
     end
 
-    describe '#mul_ct safety guard' do
+    describe '#mul safety guard' do
       let(:g) { described_class.generator }
 
       context 'when native extension is not loaded' do
         around do |example|
-          # Temporarily pretend native is not loaded
           Secp256k1.instance_variable_set(:@native, false)
           Secp256k1.instance_variable_set(:@allow_pure_ruby_ct, false)
           example.run
@@ -406,18 +404,26 @@ RSpec.describe Secp256k1 do
           Secp256k1.instance_variable_set(:@allow_pure_ruby_ct, false)
         end
 
-        it 'raises InsecureOperationError' do
+        it 'raises InsecureOperationError on mul' do
+          expect { g.mul(42) }.to raise_error(Secp256k1::InsecureOperationError)
+        end
+
+        it 'raises InsecureOperationError on mul_ct (alias)' do
           expect { g.mul_ct(42) }.to raise_error(Secp256k1::InsecureOperationError)
+        end
+
+        it 'does not raise on mul_vt' do
+          expect { g.mul_vt(42) }.not_to raise_error
         end
 
         it 'allows override via allow_pure_ruby_ct!' do
           Secp256k1.allow_pure_ruby_ct!
-          expect { g.mul_ct(42) }.not_to raise_error
+          expect { g.mul(42) }.not_to raise_error
         end
 
         it 'allows override via environment variable' do
           ENV['SECP256K1_ALLOW_PURE_RUBY_CT'] = '1'
-          expect { g.mul_ct(42) }.not_to raise_error
+          expect { g.mul(42) }.not_to raise_error
         ensure
           ENV.delete('SECP256K1_ALLOW_PURE_RUBY_CT')
         end
@@ -426,7 +432,7 @@ RSpec.describe Secp256k1 do
       context 'when native extension is loaded' do
         it 'does not raise' do
           expect(Secp256k1.native?).to be true
-          expect { g.mul_ct(42) }.not_to raise_error
+          expect { g.mul(42) }.not_to raise_error
         end
       end
     end

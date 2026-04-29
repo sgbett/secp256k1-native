@@ -536,38 +536,25 @@ module Secp256k1
       end
     end
 
-    # Scalar multiplication: self * scalar (variable-time, wNAF).
+    # Scalar multiplication: self * scalar (constant-time, Montgomery ladder).
     #
-    # Suitable for public scalars only (e.g. signature verification).
-    # For secret-scalar paths use {#mul_ct}.
+    # Processes all 256 bits unconditionally so execution time does not
+    # depend on the scalar value. Safe for both secret and public scalars.
+    # This is the default because the safe path should be the easy path.
+    #
+    # For performance-critical public-scalar paths (e.g. batch verification)
+    # where constant-time is unnecessary, use {#mul_vt}.
+    #
+    # Raises {InsecureOperationError} if the native C extension is not loaded,
+    # unless explicitly allowed via {Secp256k1.allow_pure_ruby_ct!} or the
+    # +SECP256K1_ALLOW_PURE_RUBY_CT+ environment variable.
     #
     # @param scalar [Integer] the scalar multiplier
     # @return [Point] the resulting point
     def mul(scalar)
-      return self.class.infinity if scalar.zero? || infinity?
-
-      scalar %= N
-      return self.class.infinity if scalar.zero?
-
-      jp = Secp256k1.scalar_multiply_wnaf(scalar, @x, @y)
-      affine = Secp256k1.jp_to_affine(jp)
-      return self.class.infinity if affine.nil?
-
-      self.class.new(affine[0], affine[1])
-    end
-
-    # Constant-time scalar multiplication: self * scalar (Montgomery ladder).
-    #
-    # Processes all 256 bits unconditionally so execution time does not
-    # depend on the scalar value. Use this for secret-scalar paths:
-    # key generation, signing, and ECDH shared-secret derivation.
-    #
-    # @param scalar [Integer] the secret scalar multiplier
-    # @return [Point] the resulting point
-    def mul_ct(scalar)
       unless Secp256k1.native? || Secp256k1.pure_ruby_ct_allowed?
         raise Secp256k1::InsecureOperationError,
-              'mul_ct requires the native C extension for constant-time guarantees. ' \
+              'mul requires the native C extension for constant-time guarantees. ' \
               'Set SECP256K1_ALLOW_PURE_RUBY_CT=1 or call Secp256k1.allow_pure_ruby_ct! to override.'
       end
 
@@ -577,6 +564,30 @@ module Secp256k1
       return self.class.infinity if scalar.zero?
 
       jp = Secp256k1.scalar_multiply_ct(scalar, @x, @y)
+      affine = Secp256k1.jp_to_affine(jp)
+      return self.class.infinity if affine.nil?
+
+      self.class.new(affine[0], affine[1])
+    end
+
+    # @deprecated Use {#mul} instead. Alias retained for backward compatibility.
+    alias mul_ct mul
+
+    # Variable-time scalar multiplication: self * scalar (wNAF).
+    #
+    # Faster than {#mul} but leaks timing information about the scalar.
+    # Use only when the scalar is public (e.g. signature verification,
+    # computing known generator multiples). Never use with secret scalars.
+    #
+    # @param scalar [Integer] the public scalar multiplier
+    # @return [Point] the resulting point
+    def mul_vt(scalar)
+      return self.class.infinity if scalar.zero? || infinity?
+
+      scalar %= N
+      return self.class.infinity if scalar.zero?
+
+      jp = Secp256k1.scalar_multiply_wnaf(scalar, @x, @y)
       affine = Secp256k1.jp_to_affine(jp)
       return self.class.infinity if affine.nil?
 

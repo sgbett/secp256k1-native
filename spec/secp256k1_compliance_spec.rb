@@ -247,30 +247,30 @@ RSpec.describe 'secp256k1 compliance' do
       end
     end
 
-    context 'mul_ct matches mul for known multiples' do
+    context 'mul (constant-time) matches mul_vt (variable-time) for known multiples' do
       [1, 2, 3, 5, 7].each do |k|
-        it "mul_ct(#{k}) == mul(#{k})" do
-          expect(g.mul_ct(k)).to eq(g.mul(k))
+        it "mul(#{k}) == mul_vt(#{k})" do
+          expect(g.mul(k)).to eq(g.mul_vt(k))
         end
       end
 
-      it 'mul_ct(N-1) == mul(N-1)' do
+      it 'mul(N-1) == mul_vt(N-1)' do
         curve_n = Secp256k1::N
-        expect(g.mul_ct(curve_n - 1)).to eq(g.mul(curve_n - 1))
+        expect(g.mul(curve_n - 1)).to eq(g.mul_vt(curve_n - 1))
       end
     end
 
     context 'compressed round-trip for non-trivial points' do
       [2, 3, 7].each do |k|
         it "#{k}G compressed round-trip" do
-          original = g.mul(k)
+          original = g.mul_vt(k)
           serialised = original.to_octet_string(:compressed)
           recovered = pt.from_bytes(serialised)
           expect(recovered).to eq(original)
         end
 
         it "#{k}G uncompressed round-trip" do
-          original = g.mul(k)
+          original = g.mul_vt(k)
           serialised = original.to_octet_string(:uncompressed)
           recovered = pt.from_bytes(serialised)
           expect(recovered).to eq(original)

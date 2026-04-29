@@ -29,7 +29,7 @@ This boundary exists because cryptographic protocol decisions (ECDSA vs Schnorr,
 
 The C extension exists primarily to provide constant-time guarantees that Ruby's interpreter cannot offer. The ~22x performance improvement is a welcome consequence of the same fixed-width arithmetic design, not the driving motivation.
 
-The gem is architectured so that the C extension is optional — the pure-Ruby implementation works without it, the API is identical, and consuming code doesn't need to know which is active. This means the gem installs and runs everywhere Ruby does, but can be hardened with the C extension where the platform supports it (C99 compiler with `__uint128_t`).
+The gem is architectured so that the C extension is optional — the pure-Ruby implementation works without it for public-scalar operations. Constant-time operations (`mul_ct`) raise `InsecureOperationError` without the extension, requiring an explicit opt-in to pure-Ruby mode for secret-scalar paths. This means the gem installs everywhere Ruby does, but must be hardened with the C extension for security-critical use (C99 compiler with `__uint128_t`).
 
 For the security properties this enables, see [security](security.md). For the performance characteristics, see [performance](performance.md). For the broader question of whether a custom implementation is appropriate, see [evaluating the risks](risks.md).
 

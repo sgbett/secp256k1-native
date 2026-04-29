@@ -2,7 +2,7 @@
 
 Pure native C secp256k1 implementation for Ruby (no libsecp256k1 dependency).
 
-Provides secp256k1 elliptic curve primitives — field arithmetic, scalar operations, Jacobian point arithmetic, and constant-time scalar multiplication — via an optional native C extension. The gem ships a pure-Ruby base layer that works out of the box on any Ruby 2.7+ platform, with the C extension as an optional accelerator that is silently skipped when unavailable.
+Provides secp256k1 elliptic curve primitives — field arithmetic, scalar operations, Jacobian point arithmetic, and constant-time scalar multiplication — via an optional native C extension. The gem ships a pure-Ruby base layer that works out of the box on any Ruby 2.7+ platform, with the C extension providing constant-time guarantees and ~22x acceleration when available.
 
 !!! warning "Custom cryptographic implementation"
     This gem implements secp256k1 from scratch rather than wrapping an established library.
@@ -23,11 +23,11 @@ require 'secp256k1'
 # Generator point
 g = Secp256k1::Point.generator
 
-# Scalar multiplication (variable-time, for public scalars)
-point = g.mul(0xdeadbeef)
+# Scalar multiplication (constant-time by default — safe for all scalars)
+pubkey = g.mul(secret_key)
 
-# Constant-time scalar multiplication (for secret scalars)
-pubkey = g.mul_ct(secret_key)
+# Variable-time scalar multiplication (faster, for public scalars only)
+point = g.mul_vt(0xdeadbeef)
 
 # SEC1 encoding / decoding
 compressed = pubkey.to_octet_string(:compressed)
