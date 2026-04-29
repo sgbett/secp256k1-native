@@ -30,7 +30,7 @@ Jacobian point operations call field primitives directly in C without crossing t
 
 ## Scalar multiplication strategies
 
-Two strategies, chosen by security context:
+Two strategies, chosen by security context (see [security](security.md) for safe usage guidance):
 
 **wNAF (windowed Non-Adjacent Form)** — variable-time, for public scalars. Window size 5, with a precomputed table cache. Used by `Point#mul`. Suitable for signature verification and other operations where the scalar is not secret.
 
@@ -56,7 +56,7 @@ The cache has no synchronisation. See [security.md](security.md) for thread safe
 | ECDSA, Schnorr, BIP-32/39 | Not included — provided by consuming SDKs |
 | SHA-256, RIPEMD-160, HMAC, AES | Not included — delegated to OpenSSL in consuming code |
 
-This gem provides elliptic curve primitives only. Higher-level cryptographic operations (signing, verification, key derivation) are the responsibility of consuming libraries such as the [bsv-ruby-sdk](https://github.com/sgbett/bsv-ruby-sdk).
+This gem provides elliptic curve primitives only — see [design rationale](design.md#primitives-not-protocols) for why this boundary exists.
 
 ## File structure
 

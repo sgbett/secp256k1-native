@@ -1,6 +1,6 @@
 # secp256k1-native
 
-> **Before using a custom cryptographic implementation, read the [Introduction](https://sgbett.github.io/secp256k1-native/introduction/) — it examines what the empirical evidence says about rolling your own crypto and where this gem sits in that landscape.**
+> **Before using a custom cryptographic implementation, read [Evaluating the risks](https://sgbett.github.io/secp256k1-native/risks/) — it examines what the empirical evidence says about rolling your own crypto and where this gem sits in that landscape.**
 
 Pure native C secp256k1 implementation for Ruby (no libsecp256k1 dependency).
 

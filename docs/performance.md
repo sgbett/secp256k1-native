@@ -4,7 +4,7 @@
 
 The primary purpose of the C extension is **security, not performance**. It provides hardware-level constant-time arithmetic that Ruby's variable-width `Integer` internals cannot guarantee. The performance improvement is a welcome secondary benefit.
 
-**Security consideration:** The pure-Ruby implementation is constant-time at the algorithm level (no secret-dependent branching) but relies on Ruby's arbitrary-precision `Integer` for the underlying arithmetic, which is variable-width and may leak timing information proportional to value magnitude. Users handling secret key material (signing, key derivation) should evaluate whether this is acceptable for their threat model. The C extension eliminates this concern by operating on fixed-width 4x64-bit limbs with branchless conditional selection throughout.
+See [security](security.md) for constant-time properties and safe API usage guidance.
 
 The C extension provides approximately **23x speedup for signing** and **19x speedup for verification** compared to the pure-Ruby implementation. All measurements on Apple Silicon (M-series).
 
@@ -66,29 +66,6 @@ libsecp256k1 is approximately 25x faster than this implementation's C extension.
 - **Batch inversion** and other algorithmic optimisations accumulated over years of development
 
 This gem intentionally does not pursue these optimisations. The goal is a self-contained, auditable implementation with no external dependencies — not to compete with a decade of dedicated C/assembly engineering.
-
-## Constant-time properties
-
-The C extension provides constant-time arithmetic at the hardware level. This is distinct from the pure-Ruby implementation, which is constant-time at the algorithm level (no secret-dependent branching) but cannot guarantee constant-time at the machine level because Ruby's `Integer` uses variable-width bignum internals.
-
-In the C extension:
-
-- **Field reduction** (`fred`) uses branchless conditional selection via bitwise masking — the final conditional subtraction compiles to a mask-and-select, not a branch.
-- **Field subtraction** (`fsub`) and **negation** (`fneg`) use the same branchless pattern.
-- **Montgomery ladder** (`scalar_multiply_ct`) uses branchless `cswap` — the conditional swap of two points compiles to XOR-and-mask operations with no data-dependent branches.
-- All field and scalar operations work on fixed-width `uint256_t` values, so execution time is independent of the value being operated on.
-
-The constant-time properties are most critical for `scalar_multiply_ct`, which is used for signing and key derivation where the scalar is a secret (private key or nonce). The wNAF path (`scalar_multiply`) is variable-time by design and used only for public scalars (verification).
-
-## Platform requirements
-
-The C extension requires:
-
-- C99 compiler with `__uint128_t` support (GCC or Clang)
-- Supported: macOS (Apple Silicon, x86_64), Linux (x86_64, aarch64)
-- Not supported: MSVC on Windows (no `__uint128_t`)
-
-On unsupported platforms, `extconf.rb` generates a no-op Makefile. The gem installs and functions using the pure-Ruby implementation with no error. The API is identical regardless of which implementation is active — consuming code does not need to know or care.
 
 ## Reproducing these measurements
 

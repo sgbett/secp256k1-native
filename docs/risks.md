@@ -1,4 +1,4 @@
-# Introduction
+# Evaluating the risks
 
 This gem implements secp256k1 elliptic curve cryptography from scratch in Ruby and C. Before using it, you should understand what that means.
 
@@ -103,10 +103,7 @@ You need secp256k1 primitives in Ruby and:
 - You would be more comfortable with a binding to libsecp256k1, which has been battle-tested across the Bitcoin ecosystem
 - You are not in a position to evaluate the trade-offs described above
 
-## Further reading
+## References
 
-- [Architecture](architecture.md) — internal implementation details
-- [Security](security.md) — constant-time properties, API safety guide, thread safety
-- [Design rationale](design.md) — why pure Ruby, why not FFI
 - Bettison, S. G. (Apr. 2026). “Cryptographic Implementation Security: A Review of the
 Empirical Evidence”. [DOI: 10.13140/RG.2.2.25788.60802](https://doi.org/10.13140/RG.2.2.25788.60802).

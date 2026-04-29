@@ -6,7 +6,7 @@ Provides secp256k1 elliptic curve primitives — field arithmetic, scalar operat
 
 !!! warning "Custom cryptographic implementation"
     This gem implements secp256k1 from scratch rather than wrapping an established library.
-    Before using it, read the [Introduction](introduction.md) — it examines what the empirical
+    Before using it, read [Evaluating the risks](risks.md) — it examines what the empirical
     evidence says about rolling your own crypto and where this gem sits in that landscape.
 
 ## Quick start
@@ -36,7 +36,7 @@ decoded = Secp256k1::Point.from_bytes(compressed)
 
 ## Documentation
 
-- [Introduction](introduction.md) — the "don't roll your own crypto" question, examined empirically
+- [Evaluating the risks](risks.md) — the "don't roll your own crypto" question, examined empirically
 - [Architecture](architecture.md) — internal implementation details for contributors
 - [Security](security.md) — constant-time properties, API safety guide, thread safety
 - [Performance](performance.md) — benchmarks and the security case for native acceleration

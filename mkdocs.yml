@@ -45,7 +45,7 @@ plugins:
 
 nav:
   - Home: index.md
-  - Introduction: introduction.md
+  - Evaluating the Risks: risks.md
   - Architecture: architecture.md
   - Security: security.md
   - Performance: performance.md

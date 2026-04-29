@@ -21,36 +21,27 @@ This gem adopts the TypeScript and Go approach — implementing the curve from s
 
 ## Primitives, not protocols
 
-This gem provides low-level elliptic curve primitives only:
+This gem deliberately provides only low-level elliptic curve primitives — no signing, no key derivation, no hashing. See the [scope table](architecture.md#scope) for the full breakdown.
 
-- Field arithmetic (mod P)
-- Scalar arithmetic (mod N)
-- Point operations (addition, doubling, negation, serialisation)
-- Scalar multiplication (variable-time and constant-time)
-- SEC 1 point encoding/decoding
+This boundary exists because cryptographic protocol decisions (ECDSA vs Schnorr, RFC 6979 nonce generation, BIP-32 derivation paths) vary by application. Keeping the gem focused on curve arithmetic avoids embedding those choices and keeps the codebase small — which the evidence shows correlates with fewer vulnerabilities. Higher-level operations belong in consuming libraries (e.g., [bsv-ruby-sdk](https://github.com/sgbett/bsv-ruby-sdk)) that compose these primitives.
 
-It does **not** implement:
+## The C extension: hardening, not just acceleration
 
-- ECDSA signing or verification
-- Schnorr signatures (BIP-340)
-- HD key derivation (BIP-32)
-- Mnemonic generation (BIP-39)
-- Hashing (SHA-256, RIPEMD-160) or HMAC
-- AES encryption
+The C extension exists primarily to provide constant-time guarantees that Ruby's interpreter cannot offer. The ~22x performance improvement is a welcome consequence of the same fixed-width arithmetic design, not the driving motivation.
 
-These higher-level operations belong in consuming libraries (e.g., [bsv-ruby-sdk](https://github.com/sgbett/bsv-ruby-sdk)) that compose the primitives this gem provides. This separation keeps the gem focused and avoids pulling in cryptographic protocol decisions that vary by application.
+The gem is architectured so that the C extension is optional — the pure-Ruby implementation works without it, the API is identical, and consuming code doesn't need to know which is active. This means the gem installs and runs everywhere Ruby does, but can be hardened with the C extension where the platform supports it (C99 compiler with `__uint128_t`).
 
-## The acceleration trade-off
+For the security properties this enables, see [security](security.md). For the performance characteristics, see [performance](performance.md). For the broader question of whether a custom implementation is appropriate, see [evaluating the risks](risks.md).
 
-The pure-Ruby implementation runs at approximately 100 scalar multiplications per second. The C extension raises this to approximately 2,277 — a 22x speedup. This makes the difference between "too slow for production" and "fast enough for signing-heavy workloads".
+## Why not wrap libsecp256k1?
 
-The trade-off: the C extension requires a C99 compiler with `__uint128_t` support, which excludes MSVC on Windows. Rather than making the C extension mandatory (and losing Windows/JRuby/TruffleRuby), the gem treats it as an optional accelerator. The API is identical regardless of which implementation is active — consuming code doesn't need to know or care.
+FFI bindings to libsecp256k1 already exist. That gem occupies a different point in the trade-off space described in the [risk assessment](risks.md) — it accepts the dependency and supply chain risks in exchange for a battle-tested implementation. This gem makes the opposite choice.
 
-## Why not FFI?
+The decision to implement from scratch rather than wrap an existing library follows from the same constraints that motivate the gem's existence:
 
-An alternative to a C extension would be FFI bindings to libsecp256k1. This was rejected because:
+- **The TypeScript and Go SDKs implement from scratch** — this gem matches that approach for Ruby, keeping the SDK ecosystem consistent
+- **No dependencies means no supply chain risk** — `gem install` is the only setup step, with no system library, no pkg-config, no platform-specific build scripts
+- **The C extension is tailored to the gem's internals** — it accelerates the exact operations the pure-Ruby layer defines, rather than adapting to libsecp256k1's API and data representations
+- **Self-contained testing** — the gem validates against Wycheproof vectors rather than trusting that a system-installed library is the correct version or was compiled with the right flags
 
-- FFI adds a runtime dependency and still requires the system library to be installed
-- The self-contained approach means `bundle install` is the only setup step
-- The C extension can be tailored to the gem's internal representation rather than adapting to libsecp256k1's API
-- Testing is simpler — the gem validates against known vectors rather than trusting a third-party library's correctness
+Whether this trade-off is right for a given project depends on the threat model. The [risk assessment](risks.md) lays out the evidence; users should evaluate it against their specific context.
