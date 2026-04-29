@@ -314,4 +314,99 @@ RSpec.describe 'secp256k1 property-based tests', :property do # rubocop:disable 
       end
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Point operation properties
+  # ---------------------------------------------------------------------------
+  describe 'point operations' do # rubocop:disable Metrics/BlockLength
+    let(:g) { Secp256k1::Point.generator }
+    let(:infinity) { Secp256k1::Point.infinity }
+
+    it 'identity: P + O = P' do
+      check_property('identity') do |rng, _i|
+        pt = random_point(rng)
+        expect(pt.add(infinity)).to eq(pt)
+        expect(infinity.add(pt)).to eq(pt)
+      end
+    end
+
+    it 'inverse: P + (-P) = O' do
+      check_property('inverse') do |rng, _i|
+        pt = random_point(rng)
+        expect(pt.add(pt.negate)).to eq(infinity)
+      end
+    end
+
+    it 'closure: P + Q is a valid curve point' do
+      check_property('closure') do |rng, _i|
+        pt = random_point(rng)
+        q = random_point(rng)
+        result = pt.add(q)
+        expect(result.on_curve?).to be(true)
+      end
+    end
+
+    it 'scalar multiplication homomorphism: k*G + m*G = (k+m)*G' do
+      check_property('scalar mul homomorphism', iterations: 200) do |rng, _i|
+        k = random_scalar(rng)
+        m = random_scalar(rng)
+        lhs = g.mul_vt(k).add(g.mul_vt(m))
+        rhs = g.mul_vt((k + m) % n_val)
+        expect(lhs).to eq(rhs)
+      end
+    end
+
+    it 'double consistency: P + P = 2*P (jp_add vs jp_double)' do
+      check_property('double consistency', iterations: 200) do |rng, _i|
+        pt = random_point(rng)
+        jp = [pt.x, pt.y, 1]
+        doubled_affine = s.jp_to_affine(s.jp_double(jp))
+        added_affine = s.jp_to_affine(s.jp_add(jp, jp))
+        expect(added_affine).to eq(doubled_affine)
+      end
+    end
+
+    it 'negation involution: -(-P) = P' do
+      check_property('negation involution') do |rng, _i|
+        pt = random_point(rng)
+        expect(pt.negate.negate).to eq(pt)
+      end
+    end
+
+    it 'mul/mul_vt parity: constant-time and variable-time give same result' do
+      check_property('mul/mul_vt parity') do |rng, _i|
+        k = random_scalar(rng)
+        expect(g.mul(k)).to eq(g.mul_vt(k))
+      end
+    end
+
+    it 'SEC1 round-trip: decode(encode(P)) = P for compressed' do
+      check_property('SEC1 compressed round-trip') do |rng, _i|
+        pt = random_point(rng)
+        encoded = pt.to_octet_string(:compressed)
+        decoded = Secp256k1::Point.from_bytes(encoded)
+        expect(decoded).to eq(pt)
+      end
+    end
+
+    it 'SEC1 round-trip: decode(encode(P)) = P for uncompressed' do
+      check_property('SEC1 uncompressed round-trip') do |rng, _i|
+        pt = random_point(rng)
+        encoded = pt.to_octet_string(:uncompressed)
+        decoded = Secp256k1::Point.from_bytes(encoded)
+        expect(decoded).to eq(pt)
+      end
+    end
+
+    it 'associativity: (P + Q) + R = P + (Q + R)' do
+      check_property('associativity', iterations: 100) do |rng, _i|
+        pt = random_point(rng)
+        q = random_point(rng)
+        r = random_point(rng)
+        lhs = pt.add(q).add(r)
+        rhs = pt.add(q.add(r))
+        expect(lhs).to eq(rhs)
+      end
+    end
+  end
 end
