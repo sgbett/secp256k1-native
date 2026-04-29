@@ -197,4 +197,121 @@ RSpec.describe 'secp256k1 property-based tests', :property do # rubocop:disable 
       end
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Scalar arithmetic properties (mod N)
+  # ---------------------------------------------------------------------------
+  describe 'scalar arithmetic' do # rubocop:disable Metrics/BlockLength
+    it 'scalar_mul is commutative: a*b == b*a' do
+      check_property('scalar_mul commutativity') do |rng, _i|
+        a = random_scalar(rng)
+        b = random_scalar(rng)
+        expect(s.scalar_mul(a, b)).to eq(s.scalar_mul(b, a))
+      end
+    end
+
+    it 'scalar_mul is associative: (a*b)*c == a*(b*c)' do
+      check_property('scalar_mul associativity') do |rng, _i|
+        a = random_scalar(rng)
+        b = random_scalar(rng)
+        c = random_scalar(rng)
+        expect(s.scalar_mul(s.scalar_mul(a, b), c)).to eq(s.scalar_mul(a, s.scalar_mul(b, c)))
+      end
+    end
+
+    it 'scalar_add is commutative: a+b == b+a' do
+      check_property('scalar_add commutativity') do |rng, _i|
+        a = random_scalar(rng)
+        b = random_scalar(rng)
+        expect(s.scalar_add(a, b)).to eq(s.scalar_add(b, a))
+      end
+    end
+
+    it 'scalar_add is associative: (a+b)+c == a+(b+c)' do
+      check_property('scalar_add associativity') do |rng, _i|
+        a = random_scalar(rng)
+        b = random_scalar(rng)
+        c = random_scalar(rng)
+        expect(s.scalar_add(s.scalar_add(a, b), c)).to eq(s.scalar_add(a, s.scalar_add(b, c)))
+      end
+    end
+
+    it 'multiplication distributes over addition: a*(b+c) == a*b + a*c' do
+      check_property('distributivity') do |rng, _i|
+        a = random_scalar(rng)
+        b = random_scalar(rng)
+        c = random_scalar(rng)
+        lhs = s.scalar_mul(a, s.scalar_add(b, c))
+        rhs = s.scalar_add(s.scalar_mul(a, b), s.scalar_mul(a, c))
+        expect(lhs).to eq(rhs)
+      end
+    end
+
+    it 'multiplicative inverse: a * a^-1 == 1 for non-zero a' do
+      check_property('multiplicative inverse') do |rng, _i|
+        a = random_scalar(rng)
+        expect(s.scalar_mul(a, s.scalar_inv(a))).to eq(1)
+      end
+    end
+
+    it 'scalar_mod is idempotent: scalar_mod(scalar_mod(a)) == scalar_mod(a)' do
+      # C extension rejects values exceeding 256 bits, so stay within [-N, 2^256)
+      max256 = (1 << 256) - 1
+      check_property('scalar_mod idempotence') do |rng, _i|
+        a = rng.rand((-n_val)..max256)
+        expect(s.scalar_mod(s.scalar_mod(a))).to eq(s.scalar_mod(a))
+      end
+    end
+
+    it 'scalar_mod result is always in [0, N)' do
+      max256 = (1 << 256) - 1
+      check_property('scalar_mod range') do |rng, _i|
+        a = rng.rand((-n_val)..max256)
+        result = s.scalar_mod(a)
+        expect(result).to be >= 0
+        expect(result).to be < n_val
+      end
+    end
+
+    # -----------------------------------------------------------------------
+    # Boundary values
+    # -----------------------------------------------------------------------
+    describe 'boundary values' do # rubocop:disable Metrics/BlockLength
+      it 'scalar_mul commutativity at boundaries' do
+        [1, n_val - 1, n_val - 2, n_val + 1].repeated_combination(2) do |a, b|
+          expect(s.scalar_mul(a, b)).to eq(s.scalar_mul(b, a))
+        end
+      end
+
+      it 'scalar_add commutativity at boundaries' do
+        [0, 1, n_val - 1, n_val - 2, n_val + 1].repeated_combination(2) do |a, b|
+          expect(s.scalar_add(a, b)).to eq(s.scalar_add(b, a))
+        end
+      end
+
+      it 'scalar_add of two values summing to exactly N yields 0' do
+        expect(s.scalar_add(1, n_val - 1)).to eq(0)
+        expect(s.scalar_add(n_val - 2, 2)).to eq(0)
+      end
+
+      it 'multiplicative inverse at boundaries' do
+        [1, n_val - 1, n_val - 2].each do |a|
+          expect(s.scalar_mul(a, s.scalar_inv(a))).to eq(1)
+        end
+      end
+
+      it 'scalar_inv(0) raises' do
+        expect { s.scalar_inv(0) }.to raise_error(ArgumentError)
+      end
+
+      it 'scalar_mod at boundaries' do
+        expect(s.scalar_mod(0)).to eq(0)
+        expect(s.scalar_mod(n_val)).to eq(0)
+        expect(s.scalar_mod(n_val - 1)).to eq(n_val - 1)
+        expect(s.scalar_mod(n_val + 1)).to eq(1)
+        expect(s.scalar_mod(-1)).to eq(n_val - 1)
+        expect(s.scalar_mod(-n_val)).to eq(0)
+      end
+    end
+  end
 end
