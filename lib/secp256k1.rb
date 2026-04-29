@@ -19,6 +19,32 @@ require_relative 'secp256k1/version'
 # All field operations work on plain Ruby +Integer+ values (arbitrary
 # precision, C-backed in MRI). No external gems required.
 module Secp256k1
+  # Raised when a constant-time operation is attempted without the native
+  # C extension loaded. The pure-Ruby implementation cannot guarantee
+  # constant-time execution due to interpreter-introduced timing variability.
+  class InsecureOperationError < SecurityError; end
+
+  # Whether the native C extension is loaded and active.
+  #
+  # @return [Boolean]
+  def self.native?
+    @native == true
+  end
+
+  # Explicitly allow constant-time operations in pure-Ruby mode.
+  # Call this only after evaluating the risks documented in docs/risks.md.
+  def self.allow_pure_ruby_ct!
+    @allow_pure_ruby_ct = true
+  end
+
+  # @api private
+  def self.pure_ruby_ct_allowed?
+    @allow_pure_ruby_ct || ENV.key?('SECP256K1_ALLOW_PURE_RUBY_CT')
+  end
+
+  @native = false
+  @allow_pure_ruby_ct = false
+
   # The secp256k1 field prime: p = 2^256 - 2^32 - 977
   P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
 
@@ -539,6 +565,12 @@ module Secp256k1
     # @param scalar [Integer] the secret scalar multiplier
     # @return [Point] the resulting point
     def mul_ct(scalar)
+      unless Secp256k1.native? || Secp256k1.pure_ruby_ct_allowed?
+        raise Secp256k1::InsecureOperationError,
+              'mul_ct requires the native C extension for constant-time guarantees. ' \
+              'Set SECP256K1_ALLOW_PURE_RUBY_CT=1 or call Secp256k1.allow_pure_ruby_ct! to override.'
+      end
+
       return self.class.infinity if scalar.zero? || infinity?
 
       scalar %= N
@@ -619,8 +651,13 @@ module Secp256k1
        jp_double jp_add jp_neg scalar_multiply_ct].each do |m|
       singleton_class.define_method(m, Secp256k1Native.method(m).to_proc)
     end
+
+    @native = true
   rescue LoadError
-    # Extension not compiled — pure-Ruby fallback, no action needed.
+    # Extension not compiled — pure-Ruby fallback.
+    warn '[secp256k1-native] Native C extension not loaded — falling back to pure Ruby. ' \
+         'Constant-time operations (mul_ct) will raise unless explicitly allowed. ' \
+         'See: https://sgbett.github.io/secp256k1-native/risks/'
   end
 end
 # rubocop:enable Naming/MethodParameterName, Metrics/ModuleLength

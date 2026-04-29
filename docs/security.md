@@ -14,13 +14,32 @@ The `Point` class exposes two scalar multiplication methods. Choosing the wrong 
 **Rule of thumb:** if the scalar is derived from a private key or nonce, use `mul_ct`. If the scalar is a public value (e.g., a hash used in verification), `mul` is safe and faster.
 
 ```ruby
-# Public scalar — variable-time is fine
 g = Secp256k1::Point.generator
 pubkey = g.mul_ct(secret_key)       # secret key → constant-time
-
-# Verification — scalar is public
 point = pubkey.mul(public_hash)     # public value → variable-time OK
 ```
+
+### Pure-Ruby safety guard
+
+`mul_ct` will raise `Secp256k1::InsecureOperationError` if the native C extension is not loaded. This prevents silent degradation to pure-Ruby arithmetic that cannot guarantee constant-time execution.
+
+To check whether the extension is active:
+
+```ruby
+Secp256k1.native?  # => true if C extension is loaded
+```
+
+If you have evaluated the [risks](risks.md) and consciously accept the pure-Ruby implementation for your threat model, you can override the guard:
+
+```ruby
+# Option 1: environment variable
+ENV['SECP256K1_ALLOW_PURE_RUBY_CT'] = '1'
+
+# Option 2: explicit call (e.g., in an initialiser)
+Secp256k1.allow_pure_ruby_ct!
+```
+
+Public-scalar operations (`mul`, field arithmetic, point operations) are unaffected and work in both modes without restriction.
 
 ## Constant-time discipline
 

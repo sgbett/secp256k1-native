@@ -28,6 +28,12 @@ RSpec.describe Secp256k1 do
     end
   end
 
+  describe '.native?' do
+    it 'returns true when C extension is loaded' do
+      expect(s.native?).to be true
+    end
+  end
+
   describe 'byte helpers' do
     it 'round-trips bytes_to_int and int_to_bytes' do
       n = 0xDEADBEEFCAFE
@@ -383,6 +389,45 @@ RSpec.describe Secp256k1 do
 
       it 'infinity negation is infinity' do
         expect(described_class.infinity.negate.infinity?).to be true
+      end
+    end
+
+    describe '#mul_ct safety guard' do
+      let(:g) { described_class.generator }
+
+      context 'when native extension is not loaded' do
+        around do |example|
+          # Temporarily pretend native is not loaded
+          Secp256k1.instance_variable_set(:@native, false)
+          Secp256k1.instance_variable_set(:@allow_pure_ruby_ct, false)
+          example.run
+        ensure
+          Secp256k1.instance_variable_set(:@native, true)
+          Secp256k1.instance_variable_set(:@allow_pure_ruby_ct, false)
+        end
+
+        it 'raises InsecureOperationError' do
+          expect { g.mul_ct(42) }.to raise_error(Secp256k1::InsecureOperationError)
+        end
+
+        it 'allows override via allow_pure_ruby_ct!' do
+          Secp256k1.allow_pure_ruby_ct!
+          expect { g.mul_ct(42) }.not_to raise_error
+        end
+
+        it 'allows override via environment variable' do
+          ENV['SECP256K1_ALLOW_PURE_RUBY_CT'] = '1'
+          expect { g.mul_ct(42) }.not_to raise_error
+        ensure
+          ENV.delete('SECP256K1_ALLOW_PURE_RUBY_CT')
+        end
+      end
+
+      context 'when native extension is loaded' do
+        it 'does not raise' do
+          expect(Secp256k1.native?).to be true
+          expect { g.mul_ct(42) }.not_to raise_error
+        end
       end
     end
 
