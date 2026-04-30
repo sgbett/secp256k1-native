@@ -8,6 +8,7 @@ pkg/
 lib/secp256k1_native.*
 .bundle/
 *.gem
+data.tar.gz
 site/
 doc/
 docs/reference/
