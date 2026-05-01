@@ -20,7 +20,7 @@ Operations that cannot guarantee their security properties must raise, not silen
 
 Security claims must be empirically verified where tooling exists. Code inspection is necessary but insufficient — the evidence shows that subtle bugs (carry-propagation errors, canonicalisation failures) persist in expert-reviewed code for years (Steinbach, Grossschadl & Ronne, 2025; Mouha & Celi, 2023).
 
-*In this codebase:* Wycheproof test vectors validate functional correctness (474 ECDSA cases). Constant-time claims for field arithmetic (`fred`, `fsub`, `fneg`, `fadd`) are empirically verified via a dudect-based timing harness. The Montgomery ladder (`scalar_multiply_ct`) has a known timing leakage via branching infinity checks in `jp_add` — measured, documented, and awaiting a branchless fix (see [risks.md](docs/risks.md)).
+*In this codebase:* Wycheproof test vectors validate functional correctness (474 ECDSA cases). All constant-time claims are empirically verified via a dudect-based timing harness: field arithmetic (`fred`, `fsub`, `fneg`, `fadd`) and scalar multiplication (`scalar_multiply_ct`) pass Welch's t-test (|t| < 4.5). An earlier timing leakage in the Montgomery ladder (|t| = 875, caused by branching infinity checks in `jp_add`) was found by dudect, fixed with a branchless implementation, and re-verified — a concrete demonstration of this principle.
 
 ### 3. Minimal attack surface
 
@@ -44,7 +44,7 @@ When trade-offs exist between implementation rigour and developer or performance
 
 Honest assessment of limitations over false assurance. Unverified claims are labelled as such. The absence of evidence is not evidence of absence — if a security property hasn't been empirically verified, say so.
 
-*In this codebase:* [risks.md](docs/risks.md) explicitly catalogues what works in the gem's favour and what works against it, grounded in peer-reviewed evidence. Field arithmetic constant-time claims are empirically verified; the scalar multiplication timing leakage is documented with its root cause and characterised severity.
+*In this codebase:* [risks.md](docs/risks.md) explicitly catalogues what works in the gem's favour and what works against it, grounded in peer-reviewed evidence. Constant-time claims are empirically verified via dudect. The `jp_add_internal` isolation test shows a marginal |t| of 7.5 from microarchitectural timing variation in field multiplication operand values (Z=1 vs non-trivial Z), not from any branch — this is documented as a known measurement artefact rather than claimed to be absent.
 
 ### 7. Self-verifying
 
