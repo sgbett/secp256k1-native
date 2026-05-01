@@ -20,7 +20,7 @@ Operations that cannot guarantee their security properties must raise, not silen
 
 Security claims must be empirically verified where tooling exists. Code inspection is necessary but insufficient — the evidence shows that subtle bugs (carry-propagation errors, canonicalisation failures) persist in expert-reviewed code for years (Steinbach, Grossschadl & Ronne, 2025; Mouha & Celi, 2023).
 
-*In this codebase:* Wycheproof test vectors validate functional correctness (474 ECDSA cases). Constant-time claims are currently inspection-based — empirical verification via dudect is a recognised gap (see [risks.md](docs/risks.md)).
+*In this codebase:* Wycheproof test vectors validate functional correctness (474 ECDSA cases). Constant-time claims for field arithmetic (`fred`, `fsub`, `fneg`, `fadd`) are empirically verified via a dudect-based timing harness. The Montgomery ladder (`scalar_multiply_ct`) has a known timing leakage via branching infinity checks in `jp_add` — measured, documented, and awaiting a branchless fix (see [risks.md](docs/risks.md)).
 
 ### 3. Minimal attack surface
 
@@ -44,26 +44,36 @@ When trade-offs exist between implementation rigour and developer or performance
 
 Honest assessment of limitations over false assurance. Unverified claims are labelled as such. The absence of evidence is not evidence of absence — if a security property hasn't been empirically verified, say so.
 
-*In this codebase:* [risks.md](docs/risks.md) explicitly catalogues what works in the gem's favour and what works against it, grounded in peer-reviewed evidence. The constant-time claims are documented as "based on code inspection rather than empirical measurement."
+*In this codebase:* [risks.md](docs/risks.md) explicitly catalogues what works in the gem's favour and what works against it, grounded in peer-reviewed evidence. Field arithmetic constant-time claims are empirically verified; the scalar multiplication timing leakage is documented with its root cause and characterised severity.
 
 ### 7. Self-verifying
 
 The library should verify its own correctness — through test vectors, compliance suites, and empirical measurement. Don't trust the build; verify the output.
 
-*In this codebase:* Wycheproof ECDSA vectors (474 cases), field arithmetic law verification, scalar arithmetic compliance, and known generator multiple checks. Empirical timing verification (dudect) is planned.
+*In this codebase:* Wycheproof ECDSA vectors (474 cases), field arithmetic law verification, scalar arithmetic compliance, and known generator multiple checks. Empirical timing verification via a dudect-based harness (`rake timing:verify`) validates constant-time properties of the C extension.
+
+### Security findings
+
+When testing or development reveals a security issue (side-channel leakage, arithmetic bug, validation failure):
+
+1. **Triage** — classify severity and exploitability. A timing side-channel is different from a key-leaking bug.
+2. **Fix first** — develop the fix before public disclosure where possible (GitHub security advisories support private forks).
+3. **Disclose proportionally** — pre-1.0 with no known users: fix, document, note in changelog. Published gem with dependents: GitHub security advisory + CVE + coordinated disclosure timeline.
+4. **Always document** — regardless of whether a CVE is filed, the finding and fix go into [risks.md](docs/risks.md) and the changelog.
 
 ## Build & Test Commands
 
 ```bash
 bundle install                        # Install dependencies
 bundle exec rake compile              # Compile C extension
-bundle exec rspec                     # Run full test suite (303 examples)
+bundle exec rspec                     # Run full test suite (368 examples)
 bundle exec rspec spec/secp256k1_spec.rb           # Pure-Ruby tests only
 bundle exec rspec spec/secp256k1_native_spec.rb    # C extension tests only
 bundle exec rspec spec/secp256k1_compliance_spec.rb # Wycheproof compliance
 bundle exec rspec spec/secp256k1_spec.rb:42        # Single test by line number
 bundle exec rubocop                   # Lint (excludes ext/ directory)
 bundle exec rake clobber              # Clean all build artifacts
+bundle exec rake timing:verify        # dudect constant-time verification (not in default task — slow)
 ```
 
 Default rake task runs `compile` then `spec`.

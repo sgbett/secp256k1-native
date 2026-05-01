@@ -11,6 +11,16 @@ RSpec::Core::RakeTask.new(:spec)
 
 task default: %i[compile spec]
 
+namespace :timing do
+  desc 'Run dudect constant-time verification (slow — minutes, not seconds)'
+  task :verify do
+    Dir.chdir('timing') do
+      sh 'make clean && make'
+      sh './timing_harness'
+    end
+  end
+end
+
 namespace :docs do
   desc 'Generate YARD markdown into docs/reference/'
   task :generate do

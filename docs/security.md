@@ -66,6 +66,30 @@ The Montgomery ladder algorithm is constant-time by design (fixed iteration coun
 
 For production-grade side-channel resistance, use the native C extension. The pure-Ruby fallback provides algorithmic constant-time behaviour but cannot guarantee microarchitectural constant-time execution.
 
+### Empirical timing verification
+
+The C extension's constant-time claims are empirically tested using a dudect-based timing harness (`rake timing:verify`). The approach follows Reparaz, Balasch, and Verbauwhede (2017): for each function under test, two classes of input are constructed that exercise different sides of a branchless conditional. Timing measurements are collected for both classes, and Welch's t-test determines whether the distributions are distinguishable. A |t| value below 4.5 indicates no detectable timing leakage.
+
+**Field arithmetic — verified constant-time:**
+
+| Function | |t| range | Measurements | Result |
+|---|---|---|---|
+| `fred_internal` | 0.5–4.0 | 1,500,000 | PASS |
+| `fsub_internal` | 0.1–1.0 | 1,500,000 | PASS |
+| `fneg_internal` | 0.1–1.3 | 1,500,000 | PASS |
+| `fadd_internal` | 0.1–3.4 | 1,500,000 | PASS |
+
+**Point operations — known leakage in scalar multiplication:**
+
+| Function | |t| | Measurements | Result |
+|---|---|---|---|
+| `jp_add_internal` (isolation) | 0.26 | 1,000,000 | PASS |
+| `scalar_multiply_ct_internal` | 875 | 10,000 | **FAIL** |
+
+The `scalar_multiply_ct_internal` failure has an identified root cause: `jp_add_internal` contains early-return branches on `uint256_is_zero(&p[2])` (infinity checks). Inside the Montgomery ladder, the accumulators start at infinity (Z=0). With scalar k=1, the accumulator r0 remains at infinity for 255 of 256 iterations, triggering the fast early-return path. With random scalars, r0 escapes infinity much earlier, executing full point additions. The branchless `cswap` is correct, but the branching `jp_add` it calls undoes the constant-time property. The fix requires a branchless `jp_add` implementation.
+
+Note that `jp_add_internal` passes in isolation (both test classes use finite, non-degenerate points), confirming that the leakage arises specifically from the infinity-check branches interacting with the ladder's accumulator state — not from the main computation path.
+
 ### Variable-time paths
 
 The wNAF scalar multiplication loop (`scalar_multiply_wnaf`, exposed as `Point#mul_vt`) branches on scalar bits and uses a precomputed table with data-dependent lookups. It is explicitly variable-time. This is acceptable for public scalars (signature verification) but must never be used with secret scalars.
