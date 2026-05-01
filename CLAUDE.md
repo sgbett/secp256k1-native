@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-secp256k1-native is a self-contained Ruby gem implementing secp256k1 elliptic curve cryptography. It has a pure-Ruby implementation with an optional C extension that provides hardware-level constant-time guarantees and ~37x speedup on hot paths. The C extension's primary purpose is security (constant-time field arithmetic on fixed-width limbs); performance is secondary. No external dependencies (no libsecp256k1).
+secp256k1-native is a self-contained Ruby gem implementing secp256k1 elliptic curve cryptography. It has a pure-Ruby implementation with an optional C extension that provides hardware-level constant-time guarantees and significant speedup on hot paths (see [performance](docs/performance.md)). The C extension's primary purpose is security (constant-time field arithmetic on fixed-width limbs); performance is secondary. No external dependencies (no libsecp256k1).
 
 ## Cryptographic Development Principles
 
@@ -38,7 +38,7 @@ The default API path must be the secure path. Unsafe operations require explicit
 
 When trade-offs exist between implementation rigour and developer or performance convenience, choose rigour. The inline C harness over the Ruby-driven approach. The branchless implementation over the branching one. The slower but verified path over the faster but unverified one. Always.
 
-*In this codebase:* The C extension exists for security (constant-time guarantees), not performance. The ~37x speedup is a consequence of fixed-width arithmetic, not the motivation.
+*In this codebase:* The C extension exists for security (constant-time guarantees), not performance. The speedup is a consequence of fixed-width arithmetic, not the motivation.
 
 ### 6. Document what you don't know
 
