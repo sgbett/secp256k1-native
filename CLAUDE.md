@@ -52,6 +52,15 @@ The library should verify its own correctness — through test vectors, complian
 
 *In this codebase:* Wycheproof ECDSA vectors (474 cases), field arithmetic law verification, scalar arithmetic compliance, and known generator multiple checks. Empirical timing verification via a dudect-based harness (`rake timing:verify`) validates constant-time properties of the C extension.
 
+### Security findings
+
+When testing or development reveals a security issue (side-channel leakage, arithmetic bug, validation failure):
+
+1. **Triage** — classify severity and exploitability. A timing side-channel is different from a key-leaking bug.
+2. **Fix first** — develop the fix before public disclosure where possible (GitHub security advisories support private forks).
+3. **Disclose proportionally** — pre-1.0 with no known users: fix, document, note in changelog. Published gem with dependents: GitHub security advisory + CVE + coordinated disclosure timeline.
+4. **Always document** — regardless of whether a CVE is filed, the finding and fix go into [risks.md](docs/risks.md) and the changelog.
+
 ## Build & Test Commands
 
 ```bash
