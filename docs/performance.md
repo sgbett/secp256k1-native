@@ -6,14 +6,14 @@ The primary purpose of the C extension is **security, not performance**. It prov
 
 See [security](security.md) for constant-time properties and safe API usage guidance.
 
-The C extension provides approximately **23x speedup for signing** and **19x speedup for verification** compared to the pure-Ruby implementation. All measurements on Apple Silicon (M-series).
+The C extension provides approximately **37x speedup for constant-time multiplication** (signing) and **17x speedup for variable-time multiplication** (verification) compared to the pure-Ruby implementation. All measurements on Apple Silicon (M4), Ruby 3.4, median of 5 trials.
 
-| Mode | Sign (ops/sec) | Verify (ops/sec) |
-|------|---------------|-----------------|
-| Pure Ruby | 100 | 97 |
-| C extension (field + point ops) | 2,302 | 1,826 |
+| Mode | Constant-time mul (ops/sec) | Variable-time mul (ops/sec) |
+|------|----------------------------|----------------------------|
+| Pure Ruby | 105 | 209 |
+| C extension (field + point ops) | 3,934 | 3,621 |
 
-For context, libsecp256k1 (bitcoin-core's optimised C with hand-tuned assembly) achieves 58,800 sign and 41,500 verify ops/sec on the same hardware. It is not a dependency and never will be — this figure is included only to calibrate expectations against the theoretical ceiling for fully optimised C.
+For context, libsecp256k1 (bitcoin-core's optimised C with hand-tuned assembly) achieves approximately 58,800 sign and 41,500 verify ops/sec. It is not a dependency and never will be — this figure is included only to calibrate expectations against the theoretical ceiling for fully optimised C.
 
 ## What the C extension accelerates
 
@@ -28,7 +28,7 @@ The C extension replaces 16 methods across three layers:
 
 Everything above these layers — wNAF scalar multiplication, ECDSA, Schnorr, key derivation, point serialisation — remains in Ruby, calling down into C for the hot-path arithmetic.
 
-## Why the speedup is ~22x and not more
+## Why the speedup is ~37x and not more
 
 ### Where the time goes
 
@@ -48,7 +48,7 @@ A critical design decision is _where_ the C boundary sits. Three options were ev
 | Approach | Est. ops/sec | Ruby-C calls per scalar mul | Notes |
 |----------|-------------|----------------------------|-------|
 | Field ops only in C | ~1,500–2,000 | ~4,500 | Dispatch overhead (~675us) dominates arithmetic (~90us) |
-| **Field + point ops in C** | **~2,300** | **~320** | Each `jp_double`/`jp_add` call does ~14 field ops internally in C |
+| **Field + point ops in C** | **~3,900** | **~320** | Each `jp_double`/`jp_add` call does ~14 field ops internally in C |
 | Full C (incl. wNAF/Montgomery) | ~8,000–10,000 | ~1 | All control flow in C |
 
 Moving from field-only to field + point ops roughly doubles throughput for ~150 additional lines of C. This is because each `jp_double` call that crosses the Ruby-C boundary once instead of 14 times eliminates ~13 dispatches worth of overhead.
@@ -57,7 +57,7 @@ Moving the scalar multiplication loops themselves into C (the "full C" approach)
 
 ### The remaining gap to libsecp256k1
 
-libsecp256k1 is approximately 25x faster than this implementation's C extension. The gap is attributable to:
+libsecp256k1 is approximately 15x faster than this implementation's C extension. The gap is attributable to:
 
 - **Hand-tuned assembly** for field multiplication on specific architectures
 - **Full C control flow** — no Ruby-C boundary crossings in the hot path
@@ -69,7 +69,7 @@ This gem intentionally does not pursue these optimisations. The goal is a self-c
 
 ## Reproducing these measurements
 
-The benchmark figures were measured during initial development ([sgbett/bsv-ruby-sdk#626](https://github.com/sgbett/bsv-ruby-sdk/issues/626)) on Apple Silicon. Your results will vary by hardware, Ruby version, and workload.
+The benchmark figures were measured on Apple Silicon (M4) with Ruby 3.4, median of 5 trials with warm-up. Your results will vary by hardware, Ruby version, and workload.
 
 ```ruby
 require 'benchmark'
