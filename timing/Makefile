@@ -25,11 +25,11 @@ CFLAGS   += -DTIMING_HARNESS
 CFLAGS   += -I. -I$(EXT_DIR)
 
 # Source files
-HARNESS_SRCS := timing_harness.c ruby_stubs.c
+HARNESS_SRCS := timing_harness.c ruby_stubs.c dudect.c
 EXT_SRCS     := $(EXT_DIR)/field.c $(EXT_DIR)/scalar.c $(EXT_DIR)/jacobian.c $(EXT_DIR)/secp256k1_native.c
 
 # Object files — all built in this directory
-HARNESS_OBJS := timing_harness.o ruby_stubs.o
+HARNESS_OBJS := timing_harness.o ruby_stubs.o dudect.o
 EXT_OBJS     := field.o scalar.o jacobian.o secp256k1_native.o
 
 ALL_OBJS     := $(HARNESS_OBJS) $(EXT_OBJS)
@@ -47,6 +47,9 @@ timing_harness.o: timing_harness.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 ruby_stubs.o: ruby_stubs.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+dudect.o: dudect.c dudect.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Extension source files — compiled with our stubs providing Ruby symbols
