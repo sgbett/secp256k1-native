@@ -24,9 +24,12 @@
  * ------------------------
  * jp_double: The Y=0 (point at infinity) check is handled branchlessly by
  *   computing the full result and masking to JP_INFINITY when Y is zero.
- * jp_add: Branches on pz==0 / qz==0 / h==0 operate on public data in all
- *   call paths (the wNAF accumulator starts at infinity, which is public).
- *   The field arithmetic within the main computation path is branchless.
+ * jp_add: Fully branchless.  All 18 field operations for the normal case
+ *   are computed unconditionally, along with an unconditional jp_double for
+ *   the h==0 (equal points) case.  Mask-based selects choose the correct
+ *   result (normal, double, infinity, or passthrough) without branching on
+ *   any input-dependent value.  This is essential for constant-time scalar
+ *   multiplication via the Montgomery ladder.
  * jp_neg: Branchless — delegates the zero-checking to fneg_internal.
  */
 
@@ -138,7 +141,7 @@ void jp_double_internal(uint256_t r[3], const uint256_t p[3])
 }
 
 /*
- * jp_add_internal — add two Jacobian points.
+ * jp_add_internal — add two Jacobian points (branchless).
  *
  * Formula (from hyperelliptic.org, "add-2007-bl"):
  *
@@ -153,27 +156,41 @@ void jp_double_internal(uint256_t r[3], const uint256_t p[3])
  *   Y3   = R·(V - X3) - S1·H3
  *   Z3   = H·Z1·Z2
  *
- * Special cases (handled with branches — all operate on public data):
- *   - pz == 0 (p is infinity)  → return q
- *   - qz == 0 (q is infinity)  → return p
- *   - h == 0, r == 0           → points are equal, call jp_double_internal(p)
- *   - h == 0, r != 0           → points are negatives of each other → infinity
+ * Special cases (handled branchlessly via mask-based selects):
+ *   - pz == 0 (p is infinity)  → result = q
+ *   - qz == 0 (q is infinity)  → result = p
+ *   - h == 0, r == 0           → points are equal → jp_double(p)
+ *   - h == 0, r != 0           → points are negatives → infinity
  *
- * Matches the Ruby jp_add implementation exactly.
+ * All field operations and the jp_double call are computed unconditionally.
+ * The correct result is chosen at the end via uint256_select, ensuring
+ * constant-time execution for the Montgomery ladder in scalar_multiply_ct.
+ *
+ * When h==0, the main path computes with h2=0, h3=0, z3=0 — well-defined
+ * field elements (no undefined behaviour), just mathematically meaningless.
+ * The mask-based selects override with the correct result.
+ *
+ * Selection order (later overrides earlier):
+ *   1. Start with normal addition result
+ *   2. If h==0 && r_val==0: select jp_double result (equal points)
+ *   3. If h==0 && r_val!=0: select infinity (negated points)
+ *   4. If qz==0: select p (q was infinity)
+ *   5. If pz==0: select q (p was infinity)
  */
 void jp_add_internal(uint256_t r[3], const uint256_t p[3], const uint256_t q[3])
 {
-    /* Handle point-at-infinity cases (pz == 0 or qz == 0).
-     * These branch on public data (Z coordinates are public in all call paths). */
-    if (uint256_is_zero(&p[2])) {
-        r[0] = q[0]; r[1] = q[1]; r[2] = q[2];
-        return;
-    }
-    if (uint256_is_zero(&q[2])) {
-        r[0] = p[0]; r[1] = p[1]; r[2] = p[2];
-        return;
-    }
+    /* Save copies of inputs for the final mask-based selects, since r may
+     * alias p or q (e.g. jp_add_internal(r1, r0, r1) in the Montgomery ladder).
+     * Writing the normal result into r[] would corrupt the source otherwise. */
+    uint256_t p_copy[3], q_copy[3];
+    memcpy(p_copy, p, sizeof(uint256_t) * 3);
+    memcpy(q_copy, q, sizeof(uint256_t) * 3);
 
+    /* 1. Capture input-dependent flags (evaluated once, used only in selects). */
+    uint64_t pz_zero = uint256_is_zero(&p[2]);
+    uint64_t qz_zero = uint256_is_zero(&q[2]);
+
+    /* 2. Compute all 18 field operations unconditionally. */
     uint256_t z1z1, z2z2;
     uint256_t u1, u2;
     uint256_t s1, s2;
@@ -199,21 +216,8 @@ void jp_add_internal(uint256_t r[3], const uint256_t p[3], const uint256_t q[3])
     fsub_internal(&h, &u2, &u1);
     fsub_internal(&r_val, &s2, &s1);
 
-    /* Handle the h == 0 special cases.
-     * h == 0 means the points have the same X (in affine).
-     * r == 0 additionally means the same Y → equal points → double.
-     * r != 0 means opposite Y → additive inverse → infinity. */
-    if (uint256_is_zero(&h)) {
-        if (uint256_is_zero(&r_val)) {
-            jp_double_internal(r, p);
-        } else {
-            r[0] = JP_INF_X;
-            r[1] = JP_INF_Y;
-            r[2] = JP_INF_Z;
-        }
-        return;
-    }
-
+    /* 3. Remaining field ops for the normal addition path.
+     *    When h==0 these produce h2=0, h3=0, z3=0 — valid field elements. */
     uint256_t h2, h3, v, x3, y3, z3;
 
     /* h2 = h²,  h3 = h * h2 */
@@ -241,9 +245,48 @@ void jp_add_internal(uint256_t r[3], const uint256_t p[3], const uint256_t q[3])
     fmul_internal(&tmp, &p[2], &q[2]);
     fmul_internal(&z3, &h, &tmp);
 
+    /* 4. Compute jp_double unconditionally for the h==0 && r_val==0 case.
+     *    Uses p_copy since r may alias p. */
+    uint256_t dbl[3];
+    jp_double_internal(dbl, p_copy);
+
+    /* 5. Capture remaining flags for mask-based selection. */
+    uint64_t h_zero = uint256_is_zero(&h);
+    uint64_t r_zero = uint256_is_zero(&r_val);
+
+    /* 6. Branchless result selection — order matters (later overrides earlier).
+     *
+     * Start with the normal addition result, then overlay special cases.
+     * Each uint256_select replaces r[i] only when the flag is non-zero. */
+
+    /* Start with normal addition result. */
     r[0] = x3;
     r[1] = y3;
     r[2] = z3;
+
+    /* If h==0 && r_val==0: points are equal → use jp_double result. */
+    uint64_t select_dbl = h_zero & r_zero;
+    uint256_select(&r[0], &r[0], &dbl[0], select_dbl);
+    uint256_select(&r[1], &r[1], &dbl[1], select_dbl);
+    uint256_select(&r[2], &r[2], &dbl[2], select_dbl);
+
+    /* If h==0 && r_val!=0: points are negatives → result is infinity. */
+    uint64_t select_inf = h_zero & (~r_zero & 1);
+    uint256_select(&r[0], &r[0], &JP_INF_X, select_inf);
+    uint256_select(&r[1], &r[1], &JP_INF_Y, select_inf);
+    uint256_select(&r[2], &r[2], &JP_INF_Z, select_inf);
+
+    /* If qz==0: q was infinity → result is p.
+     * Uses p_copy since r may alias p. */
+    uint256_select(&r[0], &r[0], &p_copy[0], qz_zero);
+    uint256_select(&r[1], &r[1], &p_copy[1], qz_zero);
+    uint256_select(&r[2], &r[2], &p_copy[2], qz_zero);
+
+    /* If pz==0: p was infinity → result is q.
+     * Uses q_copy since r may alias q. */
+    uint256_select(&r[0], &r[0], &q_copy[0], pz_zero);
+    uint256_select(&r[1], &r[1], &q_copy[1], pz_zero);
+    uint256_select(&r[2], &r[2], &q_copy[2], pz_zero);
 }
 
 /*
@@ -399,11 +442,10 @@ void scalar_multiply_ct_internal(uint256_t r[3], const uint256_t *k, const uint2
  * Constant-time scalar multiplication using the Montgomery ladder.
  *
  * Computes k × (px, py) entirely in C with no per-iteration Ruby dispatch.
- * The ladder loop is branchless with respect to the scalar bits (via cswap).
- * Note: jp_add_internal still branches on infinity/collision edge cases,
- * so full constant-time depends on the point operations being hardened
- * separately.  The k==0 early return is on a non-secret value (k==0 is
- * never a valid private key or nonce).
+ * The ladder loop is branchless with respect to the scalar bits (via cswap),
+ * and jp_add_internal is fully branchless (mask-based selects for all
+ * input-dependent special cases).  The k==0 early return is on a non-secret
+ * value (k==0 is never a valid private key or nonce).
  *
  * @param k  [Integer] scalar (must be in [0, N))
  * @param px [Integer] affine x-coordinate of the base point

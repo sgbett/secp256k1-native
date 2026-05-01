@@ -104,6 +104,21 @@ void scalar_inv_internal(uint256_t *r, const uint256_t *a);
 void register_scalar_methods(VALUE mod);
 
 /* -----------------------------------------------------------------------
+ * Branchless selection helper
+ * ----------------------------------------------------------------------- */
+
+/* Branchless conditional select: if flag is non-zero, *r = *b; else *r = *a.
+ * Constant-time: no branch on flag. */
+static inline void uint256_select(uint256_t *r, const uint256_t *a,
+                                   const uint256_t *b, uint64_t flag) {
+    uint64_t mask = -(uint64_t)(flag != 0);
+    r->d[0] = (a->d[0] & ~mask) | (b->d[0] & mask);
+    r->d[1] = (a->d[1] & ~mask) | (b->d[1] & mask);
+    r->d[2] = (a->d[2] & ~mask) | (b->d[2] & mask);
+    r->d[3] = (a->d[3] & ~mask) | (b->d[3] & mask);
+}
+
+/* -----------------------------------------------------------------------
  * Jacobian point operations — internal functions declared here so that
  * future modules (e.g. a scalar multiply module) can call them directly
  * in C without crossing the Ruby↔C boundary.
