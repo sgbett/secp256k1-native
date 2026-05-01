@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.17.0] - 2026-05-01
+
+### Added
+
+- Dudect-based constant-time verification harness (`rake timing:verify`) — empirical timing leakage detection using Welch's t-test for all constant-time C extension functions
+- Cryptographic development principles codified in CLAUDE.md — seven principles governing all development decisions
+- Property-based testing suite (field arithmetic, scalar arithmetic, point operations, cross-implementation parity)
+- GitHub Actions CI workflow for Ruby 2.7–3.4 matrix
+- Security findings disclosure process
+
+### Fixed
+
+- **Timing side-channel in `scalar_multiply_ct`** — `jp_add_internal` had early-return branches on infinity checks that leaked timing information about the secret scalar inside the Montgomery ladder (dudect t = -875). Made `jp_add_internal` fully branchless with mask-based conditional selection. Verified fix via dudect (t = 1.0)
+
+### Changed
+
+- Field arithmetic (`fred`, `fsub`, `fneg`, `fadd`) constant-time properties now empirically verified via dudect, not just code inspection
+
 ## [0.16.0] - 2026-04-29
 
 ### Breaking Changes
