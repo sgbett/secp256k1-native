@@ -356,12 +356,17 @@ RSpec.describe 'Secp256k1Native' do
       expect(n.scalar_mul(a, b)).to eq((a * b) % curve_n)
     end
 
-    it 'is correct for (2^256-1) * (2^256-1) [worst-case 512-bit product]' do
+    # Like the H-1 test above, the next two assertions exercise end-to-end
+    # behaviour through rb_scalar_mul, which post-#21 defence-in-depth
+    # pre-reduces operands.  scalar_mul_internal therefore sees the reduced
+    # values, not the literals in the test labels.  The primitive's direct
+    # coverage comes from security/dfuzz_harness.c (smul op).
+    it 'is correct for (2^256-1) * (2^256-1) end-to-end [reduced to (c_N-1)^2]' do
       a = (1 << 256) - 1
       expect(n.scalar_mul(a, a)).to eq((a * a) % curve_n)
     end
 
-    it 'is correct for N * N [non-canonical squaring]' do
+    it 'reduces N to 0 in rb_scalar_mul defence-in-depth (N * N -> 0)' do
       expect(n.scalar_mul(curve_n, curve_n)).to eq(0)
     end
   end

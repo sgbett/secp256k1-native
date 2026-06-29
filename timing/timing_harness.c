@@ -696,12 +696,18 @@ static int test_scalar_reduce_arith(void)
 /*
  * test_scalar_inv_arith — timing test for scalar_inv_internal.
  *
+ * Symmetric setup — both classes generate a random scalar then mask-select
+ * between the fixed value (class 0) and the random one (class 1).  This
+ * mirrors the scalar_mul / scalar_reduce pattern in this file and the
+ * test_fred pattern in the field section: identical per-iteration setup
+ * cost in both classes, so the t-test reflects only the timed op.
+ *
  *   Class A: fixed input a = 2 (minimal Hamming weight).
  *   Class B: random input a in [1, N-1].
  *
  * scalar_inv_internal runs ~256 scalar_mul_internal calls on the secret
- * base; if scalar_mul_internal is CT, the full Fermat ladder should also
- * be timing-indistinguishable across the two classes.
+ * base; if scalar_mul_internal is CT, the full Fermat ladder should be
+ * timing-indistinguishable across the two classes.
  *
  * Uses 1000 measurements — scalar_inv_internal is ~256x slower than a
  * single scalar_mul_internal.
@@ -715,18 +721,24 @@ static int test_scalar_inv_arith(void)
     uint256_t fixed_a = {{ 2ULL, 0ULL, 0ULL, 0ULL }};
 
     for (i = 0; i < SCALAR_INV_MEASUREMENTS; i++) {
-        uint256_t a, r;
+        uint256_t a, r, random_a;
         int class_id = i & 1;
         uint64_t t0, t1;
 
-        if (class_id == 0) {
-            a = fixed_a;
-        } else {
-            random_scalar_mod_n(&a);
-            if (uint256_is_zero(&a)) {
-                a.d[0] = 1;
-            }
+        /* Symmetric setup: both classes generate a random scalar (the
+         * "use fixed" decision later is a branchless mask-select).  The
+         * is_zero guard fires with probability ~2^-256, equally in both
+         * classes, so it does not bias the t-test. */
+        random_scalar_mod_n(&random_a);
+        if (uint256_is_zero(&random_a)) {
+            random_a.d[0] = 1;
         }
+
+        uint64_t mask = -(uint64_t)class_id;  /* class 0 -> 0, class 1 -> all 1s */
+        a.d[0] = (random_a.d[0] & mask) | (fixed_a.d[0] & ~mask);
+        a.d[1] = (random_a.d[1] & mask) | (fixed_a.d[1] & ~mask);
+        a.d[2] = (random_a.d[2] & mask) | (fixed_a.d[2] & ~mask);
+        a.d[3] = (random_a.d[3] & mask) | (fixed_a.d[3] & ~mask);
 
         t0 = timing_now_ns();
         scalar_inv_internal(&r, &a);
