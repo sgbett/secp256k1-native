@@ -14,3 +14,9 @@ doc/
 docs/reference/
 .yardoc/
 .claude/
+
+# security-review harness binaries (build with security/Makefile)
+/security/dfuzz
+/security/dfuzz_harness
+/security/ctgrind_harness
+/security/asan_sweep
