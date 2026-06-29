@@ -382,8 +382,18 @@ static VALUE rb_scalar_mul(VALUE self, VALUE a, VALUE b)
     (void)self;
     uint256_t ua = rb_to_uint256(a);
     uint256_t ub = rb_to_uint256(b);
+
+    /* Defence in depth: pre-reduce both operands mod N before multiplying.
+     * scalar_mul_internal is correct on any 256-bit operand pair after the
+     * H-1 fix, so this is belt-and-braces — but it makes the Ruby boundary's
+     * input contract explicit and consistent with rb_scalar_inv. */
+    uint256_t zero_limbs = {{ 0ULL, 0ULL, 0ULL, 0ULL }};
+    uint256_t ua_reduced, ub_reduced;
+    scalar_reduce(&ua_reduced, &zero_limbs, &ua);
+    scalar_reduce(&ub_reduced, &zero_limbs, &ub);
+
     uint256_t r;
-    scalar_mul_internal(&r, &ua, &ub);
+    scalar_mul_internal(&r, &ua_reduced, &ub_reduced);
     return uint256_to_rb(&r);
 }
 
