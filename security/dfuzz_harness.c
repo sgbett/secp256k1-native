@@ -35,6 +35,11 @@ int main(void) {
     char h[8][80];
     uint256_t a, b, k;
     while (fgets(line, sizeof(line), stdin)) {
+        /* Zero h[] each iteration so any sscanf slot left unmatched by a
+         * short input line reads as an empty string rather than uninitialised
+         * stack. hex_to_u256("") returns the all-zero u256 — the per-op
+         * result will be wrong, but the harness will not crash. */
+        memset(h, 0, sizeof h);
         int n = sscanf(line, "%31s %79s %79s %79s %79s %79s %79s %79s",
                        op, h[0], h[1], h[2], h[3], h[4], h[5], h[6]);
         if (n < 1) continue;
