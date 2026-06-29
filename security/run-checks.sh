@@ -16,6 +16,10 @@ cd "$(dirname "$0")"
 # Smoke default is modest so the gate is fast; scale up for a thorough run,
 # e.g. ITERS=2000000 ./run-checks.sh
 ITERS="${ITERS:-20000}"
+# Pre-#21 state: ctgrind reports the documented I-11 secret-dependent branches
+# in scalar_reduce_limbs; that's expected and reported as "KNOWN", not "FAIL".
+# Set EXPECT_I11=0 once #21 lands so any valgrind diagnostic counts as FAIL.
+EXPECT_I11="${EXPECT_I11:-1}"
 rc=0
 
 echo "== differential fuzz vs independent reference (${ITERS} iters/op-class) =="
@@ -33,18 +37,18 @@ else
 fi
 
 echo "== ctgrind secret-poisoning (valgrind) =="
-if command -v valgrind >/dev/null 2>&1; then
-  make -s ctgrind
-  if valgrind --tool=memcheck --error-exitcode=1 ./ctgrind_harness >/dev/null 2>&1; then
-    echo "  PASS: 0 errors (no secret-dependent control flow)"
-  else
-    # Expected to report the I-11 scalar_reduce_limbs branches until #21 lands.
-    echo "  KNOWN: secret-dependent branches reported — expected until #21 (I-11) is fixed"
-  fi
-else
+if ! command -v valgrind >/dev/null 2>&1; then
   echo "  SKIP: valgrind not present (native macOS) — run this gate via the Docker image"
+elif ! make -s ctgrind; then
+  echo "  FAIL: ctgrind harness build failed"; rc=1
+elif valgrind --tool=memcheck --error-exitcode=1 ./ctgrind_harness >/dev/null 2>&1; then
+  echo "  PASS: 0 errors (no secret-dependent control flow)"
+elif [ "$EXPECT_I11" = "1" ]; then
+  echo "  KNOWN: secret-dependent branches reported — expected until #21 (I-11) is fixed"
+else
+  echo "  FAIL: valgrind reported errors (re-run ./ctgrind_harness under valgrind to see them)"; rc=1
 fi
 
 echo
-echo "overall: $([ $rc -eq 0 ] && echo PASS || echo FAIL) (ctgrind 'KNOWN' is not a failure pre-#21)"
+echo "overall: $([ $rc -eq 0 ] && echo PASS || echo FAIL) (ctgrind 'KNOWN' is not a failure while EXPECT_I11=1)"
 exit $rc
