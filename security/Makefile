@@ -45,10 +45,12 @@ asan: asan_sweep.c $(EXT_SRCS) $(STUB_SRC)
 check: dfuzz asan
 	@echo "== differential fuzz vs independent Python reference ==" ; python3 dfuzz_ref.py
 	@echo "== ctgrind (valgrind memcheck) — flags the I-11 scalar branches until fixed ==" ; \
-	  if command -v valgrind >/dev/null 2>&1; then \
-	    $(MAKE) -s ctgrind && valgrind --tool=memcheck --error-exitcode=1 ./ctgrind_harness 2>&1 | tail -3 || true; \
-	  else \
+	  if ! command -v valgrind >/dev/null 2>&1; then \
 	    echo "  SKIP: valgrind not present — see ./run-checks.sh"; \
+	  elif ! $(MAKE) -s ctgrind; then \
+	    echo "  FAIL: ctgrind harness build failed"; \
+	  else \
+	    valgrind --tool=memcheck --error-exitcode=1 ./ctgrind_harness 2>&1 | tail -3 || true; \
 	  fi
 	@echo "== asan/ubsan sweep ==" ; \
 	  UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ./asan_sweep 2>&1 | tail -3
