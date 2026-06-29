@@ -291,6 +291,20 @@ RSpec.describe 'Secp256k1Native' do
       expect(n.scalar_mod(curve_n + 1)).to eq(1)
     end
 
+    it 'returns 2 for input N+2' do
+      expect(n.scalar_mod(curve_n + 2)).to eq(2)
+    end
+
+    # Boundary band: values close to but under 2^256 exercise scalar_reduce's
+    # final conditional subtract on hi=0, lo near the top of the 256-bit range.
+    # rb_scalar_mod rejects values >= 2^256, so 2*N etc. cannot be tested here
+    # — see the dfuzz harness for the hi != 0 case.
+    it 'matches Integer#% for boundary values up to 2^256 - 1' do
+      [curve_n + 2, curve_n + 100, (1 << 256) - 2, (1 << 256) - 1].each do |x|
+        expect(n.scalar_mod(x)).to eq(x % curve_n), "x=#{x}"
+      end
+    end
+
     it 'matches the Ruby reference for a typical value' do
       expect(n.scalar_mod(gx)).to eq(ref.scalar_mod(gx))
     end
@@ -324,6 +338,37 @@ RSpec.describe 'Secp256k1Native' do
       b = gy % curve_n
       expect(n.scalar_mul(a, b)).to eq(ref.scalar_mul(a, b))
     end
+
+    # H-1 regression: pre-fix, scalar_reduce_limbs dropped the carry out of
+    # bit 255 in the residual fold, so scalar_mul(2^256-1, N+2) returned a
+    # value wrong by exactly c_N and still in [0, N). Random testing cannot
+    # reach H-1's band (density ~2^-384) — this structured vector is
+    # load-bearing.
+    #
+    # Note on scope: rb_scalar_mul (post-#21 defence-in-depth) pre-reduces
+    # operands, so this assertion exercises end-to-end correctness — not the
+    # H-1 path through scalar_mul_internal directly. The primitive itself is
+    # covered by security/dfuzz_harness.c's smul op (called from
+    # dfuzz_ref.py), which calls scalar_mul_internal with no Ruby wrapper.
+    it 'is correct for (2^256-1) * (N+2) [H-1 carry-drop regression]' do
+      a = (1 << 256) - 1
+      b = curve_n + 2
+      expect(n.scalar_mul(a, b)).to eq((a * b) % curve_n)
+    end
+
+    # Like the H-1 test above, the next two assertions exercise end-to-end
+    # behaviour through rb_scalar_mul, which post-#21 defence-in-depth
+    # pre-reduces operands.  scalar_mul_internal therefore sees the reduced
+    # values, not the literals in the test labels.  The primitive's direct
+    # coverage comes from security/dfuzz_harness.c (smul op).
+    it 'is correct for (2^256-1) * (2^256-1) end-to-end [reduced to (c_N-1)^2]' do
+      a = (1 << 256) - 1
+      expect(n.scalar_mul(a, a)).to eq((a * a) % curve_n)
+    end
+
+    it 'reduces N to 0 in rb_scalar_mul defence-in-depth (N * N -> 0)' do
+      expect(n.scalar_mul(curve_n, curve_n)).to eq(0)
+    end
   end
 
   describe '#scalar_inv' do
@@ -350,6 +395,23 @@ RSpec.describe 'Secp256k1Native' do
     it 'matches the Ruby reference' do
       a = gx % curve_n
       expect(n.scalar_inv(a)).to eq(ref.scalar_inv(a))
+    end
+
+    # Fermat ladder consistency: scalar_inv runs ~256 scalar_mul_internal
+    # calls on intermediate values that exercise scalar_reduce_limbs broadly,
+    # including operand combinations that pre-H-1 could trip the dropped-
+    # carry case. Confirms x * inv(x) ≡ 1 holds across the Fermat loop.
+    it 'satisfies x * inv(x) ≡ 1 across several adversarial x' do
+      [
+        2,
+        (1 << 255),
+        curve_n - 1,
+        curve_n + 2,        # non-canonical; rb_scalar_inv pre-reduces
+        (1 << 256) - 1      # non-canonical max 256-bit value
+      ].each do |x|
+        inv = n.scalar_inv(x)
+        expect(n.scalar_mul(x, inv)).to eq(1), "x=#{x}"
+      end
     end
   end
 

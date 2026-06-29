@@ -52,6 +52,12 @@ The field operations `fred`, `fsub`, `fneg`, and `fadd` use branchless condition
 
 Inversion (`finv`) and square root (`fsqrt`) iterate over public constants (P-2 and (P+1)/4 respectively). Since the exponents are not secret, the variable iteration pattern is safe.
 
+### Scalar arithmetic
+
+The scalar operations `scalar_mul_internal`, `scalar_reduce`, and `scalar_add_internal` use branchless conditional selection — bitwise masks from carry/borrow flags and a captured topcarry — with no operand-dependent control flow. After the #21 fix, `scalar_reduce_limbs` is fully branchless: the previous `if (h == 0) continue` and `if (carry3)` guards in the residual fold were removed (the second-fold loop body is a faithful no-op when `h == 0`; the residual fold is now unconditional with topcarry capture, replacing the dropped-carry tail that caused H-1).
+
+`scalar_inv_internal` iterates over bits of the public constant N-2 via Fermat's little theorem. The branch on each bit is over public data; the per-iteration `scalar_mul_internal` operates on the secret base and is branchless.
+
 ### Montgomery ladder
 
 The C extension implements the Montgomery ladder with a branchless conditional swap (`cswap`) using bitwise masking — no branch on the scalar bit. Both `cswap` and `jp_add_internal` are fully branchless: all input-dependent special cases (infinity checks, equal/negated point detection) are handled via mask-based `uint256_select` rather than conditional branches. This provides genuine constant-time scalar multiplication at the C level, with fixed 256 iterations regardless of scalar value.
@@ -78,6 +84,16 @@ The C extension's constant-time claims are empirically tested using a dudect-bas
 | `fsub_internal` | 0.1–1.0 | 1,500,000 | PASS |
 | `fneg_internal` | 0.1–1.3 | 1,500,000 | PASS |
 | `fadd_internal` | 0.1–3.4 | 1,500,000 | PASS |
+
+**Scalar arithmetic — verified constant-time (#21):**
+
+| Function | |t| | Measurements | Result |
+|---|---|---|---|
+| `scalar_mul_internal` | 1.0 | 1,000,000 | PASS |
+| `scalar_reduce` | 0.7 | 1,000,000 | PASS |
+| `scalar_inv_internal` | 0.2 | 1,000 | PASS |
+
+After the #21 fix, `scalar_reduce_limbs` is fully branchless. The previous I-11 finding (secret-dependent branches on `h == 0` and `carry3` in the residual fold) is closed; ctgrind reports `0 errors` on the scalar layer. The dudect tests above empirically corroborate this on the dev hardware used to verify the fix.
 
 **Point operations — verified constant-time:**
 

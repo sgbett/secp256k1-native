@@ -161,9 +161,9 @@ int main(void)
      *    N-2 so branching there is expected/safe — but the squaring/mul it
      *    calls operate on secret data, so we still test scalar_mul.
      *
-     *    NOTE: scalar_reduce_limbs contains `if (h == 0) continue;` on
-     *    data derived from the operands. If h is secret-derived this is a
-     *    secret-dependent branch — this test will catch it.
+     *    Post-#21, scalar_reduce_limbs is fully branchless — the previous
+     *    `if (h == 0) continue;` and `if (carry3)` guards in the residual
+     *    fold were removed.  This test confirms 0 errors on the scalar layer.
      * ------------------------------------------------------------------ */
     {
         uint256_t a, b, r;

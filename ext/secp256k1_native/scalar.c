@@ -28,9 +28,9 @@
  *
  * Constant-time discipline
  * ------------------------
- * scalar_reduce, scalar_add_internal use branchless conditional selection.
- * scalar_inv_internal iterates over bits of the public constant N-2, which
- * is safe.
+ * scalar_reduce_limbs and scalar_add_internal use branchless conditional
+ * selection — no operand-dependent branches in either.  scalar_inv_internal
+ * iterates over bits of the public constant N-2, which is safe.
  */
 
 /* -----------------------------------------------------------------------
@@ -90,11 +90,16 @@ static const uint256_t SCALAR_ONE = {{ 1ULL, 0ULL, 0ULL, 0ULL }};
  * After the first fold the 512-bit value has been reduced to at most
  * ~385 bits.  The overflow above bit 255 (stored in the temporary carry
  * words) requires a second fold.  After two folds the result fits in
- * 256 bits + at most 1 bit, handled by a conditional subtraction.
+ * 256 bits + at most 1 bit; the residual fold then propagates that
+ * remaining bit (the "topcarry") and a branchless conditional-subtract of N
+ * selects whichever of {r, r-N} is the canonical residue.  When topcarry is
+ * set, the subtract also folds the dropped 2^256 back as c_N (= 2^256 - N).
  *
  * We accumulate into an 8-limb array and reuse the upper limbs as
  * temporaries for the folded-in contributions, so no extra allocation is
  * needed.
+ *
+ * Branchless throughout — no operand-dependent control flow.
  */
 static void scalar_reduce_limbs(uint256_t *r, uint64_t product[8])
 {
@@ -161,9 +166,12 @@ static void scalar_reduce_limbs(uint256_t *r, uint64_t product[8])
     uint64_t hi2[4];
     for (i = 0; i < 4; i++) { hi2[i] = t[4 + i]; t[4 + i] = 0; }
 
+    /* Second fold — unconditional loop body (no branch on h being zero).
+     * The body is a faithful no-op when h == 0 (each `h * CONST` term is 0
+     * and the carries propagate identically), so removing the guard changes
+     * no result, only the timing.  (Closes I-11 secret-dependent branch.) */
     for (i = 0; i < 4; i++) {
         uint64_t h = hi2[i];
-        if (h == 0) continue;
 
         acc       = (uint128_t)h * CN_LO + t[i];
         t[i]      = (uint64_t)acc;
@@ -183,30 +191,46 @@ static void scalar_reduce_limbs(uint256_t *r, uint64_t product[8])
         /* After two folds, any carry here is negligible (< 2). */
     }
 
-    /* The result is now in t[0..3] with at most a tiny overflow in t[4].
-     * Copy t[0..3] into r and apply a conditional subtraction. */
+    /* Result is now in t[0..3] with a small residual in t[4].
+     *
+     * Bound: after the first fold the value is < 2^386 (the original 512-bit
+     * product reduced by c_N ≈ 2^129).  The second fold reduces that overflow
+     * by another factor of c_N, so the post-second-fold residual is < 2^259
+     * — i.e. t[4] is a few bits wide (at most a small single-digit value),
+     * and the residual fold below produces V < 2N.  V < 2N means a single
+     * conditional subtract of N is sufficient to canonicalise. */
     r->d[0] = t[0]; r->d[1] = t[1]; r->d[2] = t[2]; r->d[3] = t[3];
 
-    /* Handle residual overflow from t[4] (at most 1 after two folds of
-     * a 512-bit input): add t[4] × c_N into r. */
+    /* Residual fold — unconditional (I-11: no branch on the carry) and
+     * capturing the carry OUT of the top limb (H-1: previously dropped at
+     * bit 255).  After two folds the value here is < 2^257, so topcarry
+     * is 0 or 1. */
     uint64_t carry3 = t[4];
-    if (carry3) {
-        /* carry3 is at most a few bits wide — use simple arithmetic. */
-        uint128_t a0 = (uint128_t)carry3 * CN_LO + r->d[0];
-        r->d[0] = (uint64_t)a0;
-        uint128_t a1 = (uint128_t)carry3 * CN_MID + r->d[1] + (a0 >> 64);
-        r->d[1] = (uint64_t)a1;
-        uint128_t a2 = (uint128_t)carry3 + r->d[2] + (a1 >> 64);
-        r->d[2] = (uint64_t)a2;
-        r->d[3] += (uint64_t)(a2 >> 64);
-    }
+    uint128_t a0 = (uint128_t)carry3 * CN_LO + r->d[0];
+    r->d[0] = (uint64_t)a0;
+    uint128_t a1 = (uint128_t)carry3 * CN_MID + r->d[1] + (a0 >> 64);
+    r->d[1] = (uint64_t)a1;
+    uint128_t a2 = (uint128_t)carry3 + r->d[2] + (a1 >> 64);
+    r->d[2] = (uint64_t)a2;
+    uint128_t a3 = (uint128_t)r->d[3] + (a2 >> 64);
+    r->d[3] = (uint64_t)a3;
+    uint64_t topcarry = (uint64_t)(a3 >> 64);    /* 0 or 1 — was H-1 dropped bit */
 
-    /* Branchless final conditional subtraction: keep r - N if r >= N. */
+    /* Branchless final reduction: keep (r - N) when topcarry is set OR r >= N.
+     *
+     * c_N == 2^256 - N, so subtracting N once when topcarry is set converts
+     * the dropped 2^256 into the correct +c_N residue.  Total value V < 2N
+     * (from V < 2^257 and N ≈ 2^256), so a single conditional subtract of N
+     * is sufficient.
+     *
+     * Using (1 ^ borrow) instead of (borrow == 0) avoids any compiler
+     * latitude to emit a compare-and-branch for the predicate. */
     uint256_t reduced;
-    uint64_t borrow = uint256_sub(&reduced, r, &CURVE_N);
-    uint64_t mask = -(uint64_t)(borrow != 0); /* all 1s if r < N */
+    uint64_t borrow = uint256_sub(&reduced, r, &CURVE_N);   /* borrow==0 <=> r >= N */
+    uint64_t keep_reduced = topcarry | (1 ^ borrow);
+    uint64_t mask = -(uint64_t)(keep_reduced != 0);
     for (i = 0; i < 4; i++) {
-        r->d[i] = (r->d[i] & mask) | (reduced.d[i] & ~mask);
+        r->d[i] = (reduced.d[i] & mask) | (r->d[i] & ~mask);
     }
 }
 
@@ -360,8 +384,18 @@ static VALUE rb_scalar_mul(VALUE self, VALUE a, VALUE b)
     (void)self;
     uint256_t ua = rb_to_uint256(a);
     uint256_t ub = rb_to_uint256(b);
+
+    /* Defence in depth: pre-reduce both operands mod N before multiplying.
+     * scalar_mul_internal is correct on any 256-bit operand pair after the
+     * H-1 fix, so this is belt-and-braces — but it makes the Ruby boundary's
+     * input contract explicit and consistent with rb_scalar_inv. */
+    uint256_t zero_limbs = {{ 0ULL, 0ULL, 0ULL, 0ULL }};
+    uint256_t ua_reduced, ub_reduced;
+    scalar_reduce(&ua_reduced, &zero_limbs, &ua);
+    scalar_reduce(&ub_reduced, &zero_limbs, &ub);
+
     uint256_t r;
-    scalar_mul_internal(&r, &ua, &ub);
+    scalar_mul_internal(&r, &ua_reduced, &ub_reduced);
     return uint256_to_rb(&r);
 }
 
