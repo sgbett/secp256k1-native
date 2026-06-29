@@ -29,9 +29,11 @@ make check                                       # build + short smoke of all th
 make clean
 ```
 
-`dfuzz_ref.py` exits non-zero if any *in-contract* case mismatches, and prints
-which of the four known-defect regression vectors still diverge — so it doubles
-as a CI gate that flips green the moment the H-1/M-1 fixes land.
+`dfuzz_ref.py` exits non-zero only if an *in-contract* case mismatches — that's
+its CI-gate role. The four known-defect regression vectors are exercised on
+every run and any divergence is printed for visibility; they do **not** affect
+the exit code, so the gate is already green against the reviewed v1.0 tree.
+When the H-1/M-1 fixes land, those divergence prints will simply disappear.
 
 ## Expected results (against the reviewed v1.0 tree)
 
