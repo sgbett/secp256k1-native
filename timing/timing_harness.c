@@ -120,6 +120,18 @@ static const uint256_t FIELD_P = {{
 }};
 
 /* -----------------------------------------------------------------------
+ * secp256k1 curve order N
+ * Little-endian limb order (d[0] = least-significant 64 bits).
+ * ----------------------------------------------------------------------- */
+
+static const uint256_t CURVE_N = {{
+    0xBFD25E8CD0364141ULL,  /* bits   0-63  */
+    0xBAAEDCE6AF48A03BULL,  /* bits  64-127 */
+    0xFFFFFFFFFFFFFFFEULL,  /* bits 128-191 */
+    0xFFFFFFFFFFFFFFFFULL   /* bits 192-255 */
+}};
+
+/* -----------------------------------------------------------------------
  * Deterministic PRNG — xorshift64 (Marsaglia, 2003)
  *
  * Using a deterministic PRNG avoids potential timing variation from
@@ -575,6 +587,182 @@ static int test_point_ops(void)
 }
 
 /* -----------------------------------------------------------------------
+ * Scalar arithmetic timing tests (dudect)
+ *
+ * Post-#21, scalar_reduce_limbs is fully branchless — no operand-dependent
+ * control flow.  These tests confirm scalar_mul_internal, scalar_reduce,
+ * and scalar_inv_internal execute in constant time across operand bands
+ * that previously took different paths (e.g. topcarry == 1 vs 0 in the
+ * residual fold).
+ *
+ * scalar_inv runs ~256 scalar_mul_internal calls in its Fermat ladder — it
+ * is the realistic ECDSA k^-1 path an adversary would target.  The
+ * conditional in the ladder iterates over bits of the PUBLIC N-2, which
+ * is safe; the per-iteration scalar_mul_internal operates on secret data.
+ * ----------------------------------------------------------------------- */
+
+#define SCALAR_OP_MEASUREMENTS  1000000
+#define SCALAR_INV_MEASUREMENTS 1000
+
+/*
+ * test_scalar_mul_arith — timing test for scalar_mul_internal.
+ *
+ * Symmetric setup — both classes run the same xorshift sequence; only the
+ * top-limb mask differs.
+ *   Class A: operands < 2^192 (top limb masked to 0).
+ *   Class B: operands across the full 2^256 range.
+ *
+ * Top-limb magnitude controls the product's high half, which exercises the
+ * residual-fold and topcarry branches.  Post-#21 those are branchless, so
+ * timing should be indistinguishable up to microarchitectural noise
+ * (cf. jp_add_internal in docs/security.md).
+ */
+static int test_scalar_mul_arith(void)
+{
+    dudect_ctx_t ctx;
+    dudect_init(&ctx);
+    int i;
+
+    for (i = 0; i < SCALAR_OP_MEASUREMENTS; i++) {
+        uint256_t a, b, r;
+        int class_id = i & 1;
+        uint64_t t0, t1;
+
+        /* top_mask: class 0 -> 0 (top limb zeroed); class 1 -> all 1s. */
+        uint64_t top_mask = -(uint64_t)class_id;
+
+        a.d[0] = xorshift64();
+        a.d[1] = xorshift64();
+        a.d[2] = xorshift64();
+        a.d[3] = xorshift64() & top_mask;
+        b.d[0] = xorshift64();
+        b.d[1] = xorshift64();
+        b.d[2] = xorshift64();
+        b.d[3] = xorshift64() & top_mask;
+
+        t0 = timing_now_ns();
+        scalar_mul_internal(&r, &a, &b);
+        t1 = timing_now_ns();
+
+        dudect_add(&ctx, class_id, (double)(t1 - t0));
+    }
+
+    dudect_report(&ctx, "scalar_mul_internal");
+    return dudect_passed(&ctx);
+}
+
+/*
+ * test_scalar_reduce_arith — timing test for scalar_reduce (hi:lo -> mod N).
+ *
+ * Symmetric setup — both classes assemble hi from CURVE_N via the same
+ * mask.  Class A masks hi entirely to 0; class B keeps hi = N+1 (exercises
+ * the topcarry path that was the H-1 site).
+ */
+static int test_scalar_reduce_arith(void)
+{
+    dudect_ctx_t ctx;
+    dudect_init(&ctx);
+    int i;
+
+    for (i = 0; i < SCALAR_OP_MEASUREMENTS; i++) {
+        uint256_t hi = CURVE_N;
+        uint256_t lo, r;
+        int class_id = i & 1;
+        uint64_t t0, t1;
+
+        /* hi_mask: class 0 -> 0 (hi becomes 0); class 1 -> all 1s (hi = N). */
+        uint64_t hi_mask = -(uint64_t)class_id;
+        hi.d[0] = (hi.d[0] & hi_mask) + (uint64_t)class_id;  /* +1 in class 1 -> N+1 */
+        hi.d[1] &= hi_mask;
+        hi.d[2] &= hi_mask;
+        hi.d[3] &= hi_mask;
+
+        lo.d[0] = xorshift64();
+        lo.d[1] = xorshift64();
+        lo.d[2] = xorshift64();
+        lo.d[3] = xorshift64();
+
+        t0 = timing_now_ns();
+        scalar_reduce(&r, &hi, &lo);
+        t1 = timing_now_ns();
+
+        dudect_add(&ctx, class_id, (double)(t1 - t0));
+    }
+
+    dudect_report(&ctx, "scalar_reduce");
+    return dudect_passed(&ctx);
+}
+
+/*
+ * test_scalar_inv_arith — timing test for scalar_inv_internal.
+ *
+ *   Class A: fixed input a = 2 (minimal Hamming weight).
+ *   Class B: random input a in [1, N-1].
+ *
+ * scalar_inv_internal runs ~256 scalar_mul_internal calls on the secret
+ * base; if scalar_mul_internal is CT, the full Fermat ladder should also
+ * be timing-indistinguishable across the two classes.
+ *
+ * Uses 1000 measurements — scalar_inv_internal is ~256x slower than a
+ * single scalar_mul_internal.
+ */
+static int test_scalar_inv_arith(void)
+{
+    dudect_ctx_t ctx;
+    dudect_init(&ctx);
+    int i;
+
+    uint256_t fixed_a = {{ 2ULL, 0ULL, 0ULL, 0ULL }};
+
+    for (i = 0; i < SCALAR_INV_MEASUREMENTS; i++) {
+        uint256_t a, r;
+        int class_id = i & 1;
+        uint64_t t0, t1;
+
+        if (class_id == 0) {
+            a = fixed_a;
+        } else {
+            random_scalar_mod_n(&a);
+            if (uint256_is_zero(&a)) {
+                a.d[0] = 1;
+            }
+        }
+
+        t0 = timing_now_ns();
+        scalar_inv_internal(&r, &a);
+        t1 = timing_now_ns();
+
+        dudect_add(&ctx, class_id, (double)(t1 - t0));
+    }
+
+    dudect_report(&ctx, "scalar_inv_internal");
+    return dudect_passed(&ctx);
+}
+
+/*
+ * test_scalar_ops — run all three scalar arithmetic timing tests.
+ */
+static int test_scalar_ops(void)
+{
+    int failures = 0;
+
+    printf("\n[8] Scalar arithmetic timing tests (dudect)\n\n");
+
+    printf("  scalar_mul_internal: %d measurements\n", SCALAR_OP_MEASUREMENTS);
+    if (!test_scalar_mul_arith()) failures++;
+
+    printf("\n  scalar_reduce: %d measurements\n", SCALAR_OP_MEASUREMENTS);
+    if (!test_scalar_reduce_arith()) failures++;
+
+    printf("\n  scalar_inv_internal: %d measurements (slow — ~256 mul each)\n",
+           SCALAR_INV_MEASUREMENTS);
+    if (!test_scalar_inv_arith()) failures++;
+
+    printf("\n  Scalar timing: %d/3 passed\n\n", 3 - failures);
+    return failures > 0 ? 1 : 0;
+}
+
+/* -----------------------------------------------------------------------
  * Helpers
  * ----------------------------------------------------------------------- */
 
@@ -700,6 +888,12 @@ int main(void)
     /* Run scalar multiplication and point operation timing tests */
     if (test_point_ops() != 0) {
         fprintf(stderr, "FAIL: point operation timing tests detected leakage\n");
+        exit_code = 1;
+    }
+
+    /* Run scalar arithmetic timing tests (#21) */
+    if (test_scalar_ops() != 0) {
+        fprintf(stderr, "FAIL: scalar arithmetic timing tests detected leakage\n");
         exit_code = 1;
     }
 
