@@ -191,12 +191,14 @@ static void scalar_reduce_limbs(uint256_t *r, uint64_t product[8])
         /* After two folds, any carry here is negligible (< 2). */
     }
 
-    /* Result is now in t[0..3] with at most a 1-bit residual carry in t[4].
+    /* Result is now in t[0..3] with a small residual in t[4].
      *
-     * Invariant: t[4] <= 1 here.  Why: after the first fold the value is
-     * < 2^385 (max ~129 bits above bit 255).  The second fold reduces that
-     * overflow by another factor of c_N ≈ 2^129, so the residual after the
-     * second fold is < 2^257, i.e. fits in 256 bits + at most 1 bit. */
+     * Bound: after the first fold the value is < 2^386 (the original 512-bit
+     * product reduced by c_N ≈ 2^129).  The second fold reduces that overflow
+     * by another factor of c_N, so the post-second-fold residual is < 2^259
+     * — i.e. t[4] is a few bits wide (at most a small single-digit value),
+     * and the residual fold below produces V < 2N.  V < 2N means a single
+     * conditional subtract of N is sufficient to canonicalise. */
     r->d[0] = t[0]; r->d[1] = t[1]; r->d[2] = t[2]; r->d[3] = t[3];
 
     /* Residual fold — unconditional (I-11: no branch on the carry) and

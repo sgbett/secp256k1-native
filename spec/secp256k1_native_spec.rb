@@ -344,6 +344,12 @@ RSpec.describe 'Secp256k1Native' do
     # value wrong by exactly c_N and still in [0, N). Random testing cannot
     # reach H-1's band (density ~2^-384) — this structured vector is
     # load-bearing.
+    #
+    # Note on scope: rb_scalar_mul (post-#21 defence-in-depth) pre-reduces
+    # operands, so this assertion exercises end-to-end correctness — not the
+    # H-1 path through scalar_mul_internal directly. The primitive itself is
+    # covered by security/dfuzz_harness.c's smul op (called from
+    # dfuzz_ref.py), which calls scalar_mul_internal with no Ruby wrapper.
     it 'is correct for (2^256-1) * (N+2) [H-1 carry-drop regression]' do
       a = (1 << 256) - 1
       b = curve_n + 2
