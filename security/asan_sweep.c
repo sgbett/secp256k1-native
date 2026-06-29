@@ -13,6 +13,7 @@
 #include "secp256k1_native.h"
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* ---- simple deterministic PRNG: splitmix64 ---- */

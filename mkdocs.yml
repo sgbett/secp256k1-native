@@ -48,6 +48,10 @@ nav:
   - Evaluating the Risks: risks.md
   - Architecture: architecture.md
   - Security: security.md
+  - Security Review (v1.0):
+      - Report: security-review-v1.md
+      - Running the checks: running-checks.md
+      - Timing runbook: timing-verification-runbook.md
   - Performance: performance.md
   - Design Rationale: design.md
   - API Reference:

@@ -138,13 +138,23 @@ def run_batch(lines):
     p = subprocess.run([HARNESS], input="".join(lines), capture_output=True, text=True)
     return p.stdout.splitlines()
 
-def _drive(op, args, expect, fails):
-    """Send one 'op arg...' line, compare hex result to expect."""
-    line = op + " " + " ".join(h(a) for a in args) + "\n"
-    out = run_batch([line])
-    got = int(out[0].split()[-1], 16) if out else None
-    if got != (expect & ((1 << 256) - 1)):
-        fails.append((op, [hex(a) for a in args], hex(expect), hex(got) if got is not None else None))
+MASK = (1 << 256) - 1
+
+
+def _run_cases(cases):
+    """cases: list of (op, args, expect). Sends ALL in one harness invocation
+    (one subprocess, not one per op), returns the list of mismatches."""
+    lines = [c[0] + " " + " ".join(h(a) for a in c[1]) + "\n" for c in cases]
+    out = run_batch(lines)
+    fails = []
+    for (op, a, expect), line in zip(cases, out):
+        got = int(line.split()[-1], 16) if line.split() else None
+        if got != (expect & MASK):
+            fails.append((op, [hex(x) for x in a], hex(expect & MASK),
+                          hex(got) if got is not None else None))
+    if len(out) != len(cases):
+        fails.append(("<protocol>", [], f"{len(cases)} results", f"{len(out)} lines"))
+    return fails
 
 
 if __name__ == "__main__":
@@ -153,28 +163,38 @@ if __name__ == "__main__":
     ap.add_argument("--iters", type=int, default=int(os.environ.get("ITERS", 200000)),
                     help="random iterations per op-class (default 200000)")
     ap.add_argument("--seed", type=int, default=1, help="PRNG seed (reproducible)")
+    ap.add_argument("--chunk", type=int, default=20000, help="cases per harness batch")
     args = ap.parse_args()
     print("reference module loaded; P,N ok")
     rng = random.Random(args.seed)
-    fails = []
 
     # ---- in-contract random pass: operands reduced (< P for field, < N for scalar) ----
     F2 = [("fmul", fmul), ("fadd", fadd), ("fsub", fsub)]
     F1 = [("fsqr", fsqr), ("fneg", fneg)]
     S2 = [("smul", smul), ("sadd", sadd)]
+    fails, batch = [], []
+
+    def flush():
+        if batch:
+            fails.extend(_run_cases(batch))
+            batch.clear()
+
     for _ in range(args.iters):
         a, b = rng.randrange(P), rng.randrange(P)
         for op, ref in F2:
-            _drive(op, [a, b], ref(a, b), fails)
+            batch.append((op, [a, b], ref(a, b)))
         for op, ref in F1:
-            _drive(op, [a], ref(a), fails)
+            batch.append((op, [a], ref(a)))
         if a:
-            _drive("finv", [a], finv(a), fails)
+            batch.append(("finv", [a], finv(a)))
         x, y = rng.randrange(N), rng.randrange(N)
         for op, ref in S2:
-            _drive(op, [x, y], ref(x, y), fails)
+            batch.append((op, [x, y], ref(x, y)))
         if x:
-            _drive("sinv", [x], sinv(x), fails)
+            batch.append(("sinv", [x], sinv(x)))
+        if len(batch) >= args.chunk:
+            flush()
+    flush()
     print(f"in-contract random pass: {args.iters} iters/op-class, {len(fails)} mismatches")
     incontract = len(fails)
 
@@ -183,11 +203,12 @@ if __name__ == "__main__":
     # (H-1's failing band has density ~2^-384). Each is EXPECTED to diverge on the
     # reviewed v1.0 tree and must turn clean once the H-1/M-1 fixes land.
     print("\nstructured regression vectors (expected to diverge until fixed):")
-    regr = []
-    _drive("smul", [2**256 - 1, N + 2], smul(2**256 - 1, N + 2), regr)     # H-1
-    _drive("sreduce", [N + 1, 0], sreduce(N + 1, 0), regr)                 # I-2 (same root cause)
-    _drive("sadd", [N, N], sadd(N, N), regr)                              # M-1
-    _drive("sadd", [2**256 - 1, 2**256 - 1], sadd(2**256 - 1, 2**256 - 1), regr)  # M-1
+    regr = _run_cases([
+        ("smul", [2**256 - 1, N + 2], smul(2**256 - 1, N + 2)),                  # H-1
+        ("sreduce", [N + 1, 0], sreduce(N + 1, 0)),                              # I-2 (same root cause)
+        ("sadd", [N, N], sadd(N, N)),                                           # M-1
+        ("sadd", [2**256 - 1, 2**256 - 1], sadd(2**256 - 1, 2**256 - 1)),       # M-1
+    ])
     for op, a, ex, got in regr:
         print(f"  DIVERGES {op}({', '.join(a)}): ref={ex} c={got}")
     if not regr:
