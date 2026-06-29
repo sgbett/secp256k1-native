@@ -39,11 +39,17 @@ asan: asan_sweep.c $(EXT_SRCS) $(STUB_SRC)
 	$(CC) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
 	      $(BASEFLAGS) $^ -lm -o asan_sweep
 
-# Smoke run: build all, run a short pass of each.
-check: all
+# Smoke run: build what we can, run a short pass of each.
+# ctgrind builds against <valgrind/memcheck.h>, so we build it lazily — only
+# when valgrind is present. That keeps `make check` clean on native macOS.
+check: dfuzz asan
 	@echo "== differential fuzz vs independent Python reference ==" ; python3 dfuzz_ref.py
 	@echo "== ctgrind (valgrind memcheck) — flags the I-11 scalar branches until fixed ==" ; \
-	  valgrind --tool=memcheck --error-exitcode=1 ./ctgrind_harness 2>&1 | tail -3 || true
+	  if command -v valgrind >/dev/null 2>&1; then \
+	    $(MAKE) -s ctgrind && valgrind --tool=memcheck --error-exitcode=1 ./ctgrind_harness 2>&1 | tail -3 || true; \
+	  else \
+	    echo "  SKIP: valgrind not present — see ./run-checks.sh"; \
+	  fi
 	@echo "== asan/ubsan sweep ==" ; \
 	  UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ./asan_sweep 2>&1 | tail -3
 
