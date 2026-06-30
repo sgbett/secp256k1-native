@@ -499,8 +499,9 @@ module Secp256k1
     # @param x [Integer] x-coordinate in [0, P)
     # @param y [Integer] y-coordinate in [0, P)
     # @return [Point]
-    # @raise [ArgumentError] if (x, y) is not on the curve, or if x or y
-    #   is not an Integer in [0, P) (raised by `new`)
+    # @raise [ArgumentError] if x or y is nil (use `Point.infinity` for
+    #   infinity); if x or y is not an Integer in [0, P) (raised by `new`);
+    #   or if (x, y) is not on the curve
     def self.from_coordinates(x, y)
       # Reject the (nil, nil) infinity shape that Point.new accepts. This
       # method's contract is "raw (x, y) Integers"; callers wanting infinity
