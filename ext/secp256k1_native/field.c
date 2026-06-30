@@ -519,8 +519,17 @@ static VALUE rb_fadd(VALUE self, VALUE a, VALUE b)
     (void)self;
     uint256_t ua = rb_to_uint256(a);
     uint256_t ub = rb_to_uint256(b);
+
+    /* L-3: pre-reduce operands so fadd_internal's `a, b < P` precondition is
+     * always satisfied (mirrors rb_finv / rb_fsqrt).  fred handles 512-bit
+     * inputs; here we use hi=0 so it's a single fast pass on each operand. */
+    uint256_t zero_limbs = {{ 0ULL, 0ULL, 0ULL, 0ULL }};
+    uint256_t ua_reduced, ub_reduced;
+    fred_internal(&ua_reduced, &zero_limbs, &ua);
+    fred_internal(&ub_reduced, &zero_limbs, &ub);
+
     uint256_t r;
-    fadd_internal(&r, &ua, &ub);
+    fadd_internal(&r, &ua_reduced, &ub_reduced);
     return uint256_to_rb(&r);
 }
 
@@ -535,8 +544,15 @@ static VALUE rb_fsub(VALUE self, VALUE a, VALUE b)
     (void)self;
     uint256_t ua = rb_to_uint256(a);
     uint256_t ub = rb_to_uint256(b);
+
+    /* L-3: pre-reduce operands (see rb_fadd). */
+    uint256_t zero_limbs = {{ 0ULL, 0ULL, 0ULL, 0ULL }};
+    uint256_t ua_reduced, ub_reduced;
+    fred_internal(&ua_reduced, &zero_limbs, &ua);
+    fred_internal(&ub_reduced, &zero_limbs, &ub);
+
     uint256_t r;
-    fsub_internal(&r, &ua, &ub);
+    fsub_internal(&r, &ua_reduced, &ub_reduced);
     return uint256_to_rb(&r);
 }
 
@@ -550,8 +566,15 @@ static VALUE rb_fneg(VALUE self, VALUE a)
 {
     (void)self;
     uint256_t ua = rb_to_uint256(a);
+
+    /* L-3 / I-3: pre-reduce the operand so fneg_internal's `a < P`
+     * precondition is always satisfied (mirrors rb_finv / rb_fsqrt). */
+    uint256_t zero_limbs = {{ 0ULL, 0ULL, 0ULL, 0ULL }};
+    uint256_t ua_reduced;
+    fred_internal(&ua_reduced, &zero_limbs, &ua);
+
     uint256_t r;
-    fneg_internal(&r, &ua);
+    fneg_internal(&r, &ua_reduced);
     return uint256_to_rb(&r);
 }
 
