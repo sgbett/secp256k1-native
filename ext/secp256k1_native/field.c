@@ -199,7 +199,6 @@ void fred_internal(uint256_t *r, const uint256_t *hi, const uint256_t *lo)
 
     /* Compute c × hi with carry.  c fits in 33 bits, hi fits in 64 bits
      * each, so each product fits in 97 bits — safe in uint128_t. */
-    acc   = 0;
     carry = 0;
     for (i = 0; i < 4; i++) {
         acc       = (uint128_t)hi->d[i] * FRED_C + lo->d[i] + carry;
