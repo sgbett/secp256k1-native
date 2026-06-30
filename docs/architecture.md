@@ -1,3 +1,8 @@
+---
+title: Architecture
+nav_order: 3
+---
+
 # Architecture
 
 Internal implementation details for contributors and auditors. For installation and usage, see the [home page](index.md).

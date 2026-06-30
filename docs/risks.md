@@ -1,3 +1,8 @@
+---
+title: Evaluating the Risks
+nav_order: 2
+---
+
 # Evaluating the risks
 
 This gem implements secp256k1 elliptic curve cryptography from scratch in Ruby and C. Before using it, you should understand what that means.

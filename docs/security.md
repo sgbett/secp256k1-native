@@ -1,3 +1,8 @@
+---
+title: Security
+nav_order: 4
+---
+
 # Security
 
 Safe usage guide, constant-time properties, and threat model for this gem.

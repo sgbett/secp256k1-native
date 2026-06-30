@@ -1,3 +1,9 @@
+---
+title: Timing runbook
+parent: Security Review (v1.0)
+nav_order: 2
+---
+
 # Timing verification runbook (bare-metal)
 
 This is a checklist for re-running the **statistical** constant-time verification

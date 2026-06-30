@@ -1,3 +1,9 @@
+---
+title: Security Review (v1.0)
+nav_order: 5
+has_children: true
+---
+
 # Security review for v1.0
 
 ## Executive summary
