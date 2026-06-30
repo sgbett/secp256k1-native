@@ -124,10 +124,15 @@ static inline uint64_t ct_value_barrier_u64(uint64_t x) {
 
 /* Build a constant-time select mask: all-ones (0xFFFF...FF) when flag != 0,
  * all-zeros otherwise. The value barrier is applied here so that EVERY mask in
- * this extension is opaque to the optimiser before it feeds a
- * (a & mask) | (b & ~mask) select. All constant-time masks MUST be constructed
- * through this helper — a raw `-(uint64_t)(cond)` is a latent branch waiting
- * for the compiler to reconstruct it. */
+ * this extension is opaque to the optimiser before it feeds a branchless
+ * mask-select — both polarities are used in this codebase:
+ *   (a & mask) | (b & ~mask)   — selects `a` when mask is all-ones
+ *   (a & ~mask) | (b & mask)   — selects `b` when mask is all-ones (e.g. uint256_select)
+ * Either form is equivalent for an all-0/all-1 mask; the comment lists both so
+ * an auditor reading a call site knows the polarity is intentional, not a bug.
+ * All constant-time masks MUST be constructed through this helper — a raw
+ * `-(uint64_t)(cond)` is a latent branch waiting for the compiler to
+ * reconstruct it. */
 static inline uint64_t ct_mask_u64(uint64_t flag) {
     return ct_value_barrier_u64(-(uint64_t)(flag != 0));
 }
