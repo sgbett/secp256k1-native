@@ -233,6 +233,45 @@ RSpec.describe Secp256k1 do
       end
     end
 
+    describe '.from_coordinates (L-5: caller-supplied coordinates)' do
+      let(:g) { described_class.generator }
+
+      it 'returns a Point for on-curve coordinates' do
+        pt = described_class.from_coordinates(g.x, g.y)
+        expect(pt).to eq(g)
+      end
+
+      it 'raises ArgumentError for off-curve coordinates' do
+        expect { described_class.from_coordinates(1, 2) }
+          .to raise_error(ArgumentError, /not on the secp256k1 curve/)
+      end
+
+      it 'raises ArgumentError for out-of-range coordinates (delegated to new)' do
+        expect { described_class.from_coordinates(s::P, g.y) }
+          .to raise_error(ArgumentError, /Integers in \[0, P\)/)
+      end
+
+      it 'raises ArgumentError for non-Integer coordinates' do
+        expect { described_class.from_coordinates(1.5, 2) }
+          .to raise_error(ArgumentError, /Integers in \[0, P\)/)
+      end
+
+      # Without an explicit nil guard, Point.new(nil, nil) would succeed
+      # (infinity) and on_curve? would return true — silently returning
+      # infinity from a method documented as validating raw coordinates.
+      it 'raises ArgumentError for (nil, nil) — use Point.infinity instead' do
+        expect { described_class.from_coordinates(nil, nil) }
+          .to raise_error(ArgumentError, /x and y must be Integers/)
+      end
+
+      it 'raises ArgumentError for partial nil (x or y)' do
+        expect { described_class.from_coordinates(nil, 2) }
+          .to raise_error(ArgumentError, /x and y must be Integers/)
+        expect { described_class.from_coordinates(1, nil) }
+          .to raise_error(ArgumentError, /x and y must be Integers/)
+      end
+    end
+
     describe '.from_bytes' do
       let(:g) { described_class.generator }
       let(:compressed) { g.to_octet_string(:compressed) }
@@ -258,6 +297,18 @@ RSpec.describe Secp256k1 do
 
       it 'raises on wrong length for uncompressed' do
         expect { described_class.from_bytes("\u0004#{"\x00" * 63}") }.to raise_error(ArgumentError, /invalid uncompressed/)
+      end
+
+      # I-4: previously these raised NoMethodError (on .encoding or
+      # nil.to_s) instead of ArgumentError.
+      it 'raises ArgumentError on non-String input [I-4]' do
+        expect { described_class.from_bytes(nil) }.to raise_error(ArgumentError, /non-empty String/)
+        expect { described_class.from_bytes(123) }.to raise_error(ArgumentError, /non-empty String/)
+        expect { described_class.from_bytes(1.5) }.to raise_error(ArgumentError, /non-empty String/)
+      end
+
+      it 'raises ArgumentError on empty String [I-4]' do
+        expect { described_class.from_bytes('') }.to raise_error(ArgumentError, /non-empty String/)
       end
 
       it 'raises on point not on curve' do

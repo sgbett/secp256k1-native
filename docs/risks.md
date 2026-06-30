@@ -86,6 +86,16 @@ Given the evidence above, here is an honest assessment of where this gem's speci
 
 **Empirical constant-time verification.** The C extension's constant-time properties are empirically tested using a dudect-based timing harness (Welch's t-test, |t| < 4.5 threshold). Field arithmetic operations (`fred`, `fsub`, `fneg`, `fadd`) pass — their branchless conditional selection produces no detectable timing variation across 1.5 million measurements per function. The Montgomery ladder (`scalar_multiply_ct_internal`) passes at 10,000 measurements (|t| = 1.0). An earlier version had a measured timing leakage (|t| = 875) caused by early-return branches in `jp_add_internal` on `uint256_is_zero(&p[2])` (infinity checks). Inside the ladder, the accumulators start at infinity (Z=0), and how quickly they escaped this state depended on the scalar's bit pattern — undoing the constant-time property that the branchless `cswap` provided. The fix replaced branching `jp_add_internal` with a fully branchless implementation using mask-based `uint256_select` for all input-dependent special cases (infinity, equal points, negated points). The leakage was found by dudect, the root cause identified by code inspection, and the fix verified by dudect — a concrete demonstration of Principle 2 (empirical over inspected).
 
+### Constructing Point objects safely
+
+Coordinates that originate outside the gem — from a wire protocol, user input, or any source the caller does not already trust to be on-curve — must enter through one of the validating entry points:
+
+- `Secp256k1::Point.from_bytes(bytes)` for SEC1-encoded compressed (33 B) or uncompressed (65 B) input.
+- `Secp256k1::Point.from_coordinates(x, y)` for raw `(x, y)` Integers.
+- `Secp256k1::Point.generator` for the well-known generator G.
+
+All three validate `on_curve?` before returning. `Point.new(x, y)` is the underlying constructor used by `mul`, `add`, `negate`, and similar paths that produce always-on-curve intermediates — it validates only that the coordinates are Integers in `[0, P)`, not that they satisfy `y² = x³ + 7 (mod P)`. Calling `mul` on a Point built via `Point.new` with off-curve coordinates is an invalid-curve precondition; always prefer the validating entry points above for caller-supplied input. See [`security.md`](security.md#constructing-point-objects) for the same guidance from the API-safety angle.
+
 ## When to use this gem
 
 You need secp256k1 primitives in Ruby and:

@@ -307,7 +307,10 @@ module Secp256k1
 
   # @!visibility private
   # Cache for precomputed wNAF tables, keyed by "window:x:y".
-  # Evicts oldest entry when the LRU limit is reached.
+  # FIFO eviction: the oldest *inserted* entry is dropped when the cap
+  # is reached (Hash preserves insertion order; we delete the first key).
+  # Bounded at WNAF_CACHE_MAX entries; keyed only on the public base
+  # point — no secret-scalar exposure.
   WNAF_TABLE_CACHE = {} # rubocop:disable Style/MutableConstant
 
   # @!visibility private
@@ -333,7 +336,7 @@ module Secp256k1
     tbl = WNAF_TABLE_CACHE[cache_key]
 
     if tbl.nil?
-      # Evict the oldest entry when the cache is full (simple LRU).
+      # FIFO eviction: drop the oldest *inserted* entry when the cache is full.
       WNAF_TABLE_CACHE.delete(WNAF_TABLE_CACHE.keys.first) if WNAF_TABLE_CACHE.size >= WNAF_CACHE_MAX
 
       tbl_size = 1 << (window - 1) # e.g. w=5 -> 16 entries
@@ -482,6 +485,37 @@ module Secp256k1
       new(nil, nil)
     end
 
+    # Construct a Point from raw (x, y) coordinates with curve-membership
+    # validation. This is the **required** entry point for caller-supplied
+    # coordinates (e.g. from an external protocol or user input).
+    #
+    # `Point.new` is intended for always-on-curve intermediates produced by
+    # `mul` / `mul_vt` / `add` / `negate`; it validates only the range of
+    # the coordinates, not that they satisfy y² = x³ + 7 (mod P). Calling
+    # `mul` on a Point constructed via `Point.new` with off-curve
+    # coordinates is an invalid-curve precondition that this method
+    # exists to close (L-5).
+    #
+    # @param x [Integer] x-coordinate in [0, P)
+    # @param y [Integer] y-coordinate in [0, P)
+    # @return [Point]
+    # @raise [ArgumentError] if x or y is nil (use `Point.infinity` for
+    #   infinity); if x or y is not an Integer in [0, P) (raised by `new`);
+    #   or if (x, y) is not on the curve
+    def self.from_coordinates(x, y)
+      # Reject the (nil, nil) infinity shape that Point.new accepts. This
+      # method's contract is "raw (x, y) Integers"; callers wanting infinity
+      # should use Point.infinity (or Point.new(nil, nil) on the internal path).
+      # Without this check, on_curve? returns true for infinity and we would
+      # silently return it.
+      raise ArgumentError, 'x and y must be Integers' if x.nil? || y.nil?
+
+      pt = new(x, y)
+      raise ArgumentError, 'point is not on the secp256k1 curve' unless pt.on_curve?
+
+      pt
+    end
+
     # The generator point G.
     #
     # @return [Point]
@@ -497,6 +531,15 @@ module Secp256k1
     # @raise [ArgumentError] if the encoding is invalid or the point
     #   is not on the curve
     def self.from_bytes(bytes)
+      # I-4: reject non-String / empty input up front with a clean
+      # ArgumentError. Without this, nil / Float / Integer raise
+      # NoMethodError (on `.encoding`), and an empty String raises
+      # NoMethodError (on `nil.to_s` in the else-branch error formatting).
+      # All fail closed either way, but the error type is wrong.
+      unless bytes.is_a?(String) && !bytes.empty?
+        raise ArgumentError, 'bytes must be a non-empty String'
+      end
+
       bytes = bytes.b if bytes.encoding != Encoding::BINARY
       prefix = bytes.getbyte(0)
 
