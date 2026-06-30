@@ -22,6 +22,16 @@ point = pubkey.mul(public_hash)     # safe for public scalars too (just slower)
 point = pubkey.mul_vt(public_hash)  # faster, but only when scalar is public
 ```
 
+### Constructing `Point` objects
+
+Use one of these entry points for any `Point` instance you will later operate on with `mul` / `mul_vt`:
+
+- `Point.generator` — the well-known generator G.
+- `Point.from_bytes(bytes)` — SEC1 compressed (33 B) or uncompressed (65 B) deserialisation; validates `on_curve?` before returning.
+- `Point.from_coordinates(x, y)` — raw coordinates with `on_curve?` validation; the required entry point for caller-supplied coordinates from an external protocol or user input.
+
+`Point.new(x, y)` is the underlying constructor used by internal paths that *already know* the coordinates lie on the curve (`mul`, `add`, `negate`, etc.). It validates that x and y are Integers in `[0, P)` but does **not** verify curve membership. Calling `mul` on a Point built from off-curve coordinates is an invalid-curve precondition — always prefer `from_coordinates` for caller-supplied inputs (L-5).
+
 ### Pure-Ruby safety guard
 
 `mul` will raise `Secp256k1::InsecureOperationError` if the native C extension is not loaded. This prevents silent degradation to pure-Ruby arithmetic that cannot guarantee constant-time execution. `mul_vt` is unaffected — it is explicitly variable-time and does not claim constant-time properties.

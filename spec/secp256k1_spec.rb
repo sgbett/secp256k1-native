@@ -233,6 +233,30 @@ RSpec.describe Secp256k1 do
       end
     end
 
+    describe '.from_coordinates (L-5: caller-supplied coordinates)' do
+      let(:g) { described_class.generator }
+
+      it 'returns a Point for on-curve coordinates' do
+        pt = described_class.from_coordinates(g.x, g.y)
+        expect(pt).to eq(g)
+      end
+
+      it 'raises ArgumentError for off-curve coordinates' do
+        expect { described_class.from_coordinates(1, 2) }
+          .to raise_error(ArgumentError, /not on the secp256k1 curve/)
+      end
+
+      it 'raises ArgumentError for out-of-range coordinates (delegated to new)' do
+        expect { described_class.from_coordinates(s::P, g.y) }
+          .to raise_error(ArgumentError, /Integers in \[0, P\)/)
+      end
+
+      it 'raises ArgumentError for non-Integer coordinates' do
+        expect { described_class.from_coordinates(1.5, 2) }
+          .to raise_error(ArgumentError, /Integers in \[0, P\)/)
+      end
+    end
+
     describe '.from_bytes' do
       let(:g) { described_class.generator }
       let(:compressed) { g.to_octet_string(:compressed) }

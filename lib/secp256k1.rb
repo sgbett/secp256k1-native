@@ -485,6 +485,29 @@ module Secp256k1
       new(nil, nil)
     end
 
+    # Construct a Point from raw (x, y) coordinates with curve-membership
+    # validation. This is the **required** entry point for caller-supplied
+    # coordinates (e.g. from an external protocol or user input).
+    #
+    # `Point.new` is intended for always-on-curve intermediates produced by
+    # `mul` / `mul_vt` / `add` / `negate`; it validates only the range of
+    # the coordinates, not that they satisfy y² = x³ + 7 (mod P). Calling
+    # `mul` on a Point constructed via `Point.new` with off-curve
+    # coordinates is an invalid-curve precondition that this method
+    # exists to close (L-5).
+    #
+    # @param x [Integer] x-coordinate in [0, P)
+    # @param y [Integer] y-coordinate in [0, P)
+    # @return [Point]
+    # @raise [ArgumentError] if (x, y) is not on the curve, or if x or y
+    #   is not an Integer in [0, P) (raised by `new`)
+    def self.from_coordinates(x, y)
+      pt = new(x, y)
+      raise ArgumentError, 'point is not on the secp256k1 curve' unless pt.on_curve?
+
+      pt
+    end
+
     # The generator point G.
     #
     # @return [Point]
