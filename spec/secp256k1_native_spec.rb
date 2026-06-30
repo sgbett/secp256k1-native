@@ -81,6 +81,13 @@ RSpec.describe 'Secp256k1Native' do
     it 'raises ArgumentError for negative input' do
       expect { n.fred(-1) }.to raise_error(ArgumentError)
     end
+
+    # L-1 also applies to fred — it packs 8 limbs directly (not via
+    # rb_to_uint256) so it needs its own guard.
+    it 'raises TypeError for non-Integer input [L-1]' do
+      expect { n.fred(1.5) }.to raise_error(TypeError, /Integer/)
+      expect { n.fred(Rational(3, 2)) }.to raise_error(TypeError, /Integer/)
+    end
   end
 
   describe '#fmul' do
@@ -154,6 +161,21 @@ RSpec.describe 'Secp256k1Native' do
     it 'is commutative' do
       expect(n.fadd(gx, gy)).to eq(n.fadd(gy, gx))
     end
+
+    # L-3: rb_fadd now pre-reduces operands; without the fix, fadd(P-1, P+1)
+    # returned exactly P (non-canonical).
+    it 'is correct for >= P operands [L-3 regression]' do
+      expect(n.fadd(p - 1, p + 1)).to eq(0)
+      expect(n.fadd(p, p)).to eq(0)
+      a = (1 << 256) - 1
+      expect(n.fadd(a, 1)).to eq((a + 1) % p)
+    end
+
+    it 'raises TypeError for non-Integer operands [L-1]' do
+      expect { n.fadd(1.5, 2) }.to raise_error(TypeError, /Integer/)
+      expect { n.fadd(2, 1.5) }.to raise_error(TypeError, /Integer/)
+      expect { n.fadd(nil, 2) }.to raise_error(TypeError, /Integer/)
+    end
   end
 
   describe '#fsub' do
@@ -176,6 +198,16 @@ RSpec.describe 'Secp256k1Native' do
 
     it 'matches the Ruby reference' do
       expect(n.fsub(gx, gy)).to eq(ref.fsub(gx, gy))
+    end
+
+    it 'is correct for >= P operands [L-3 regression]' do
+      expect(n.fsub(p, 0)).to eq(0)
+      a = (1 << 256) - 1
+      expect(n.fsub(a, p)).to eq((a - p) % p)
+    end
+
+    it 'raises TypeError for non-Integer operands [L-1]' do
+      expect { n.fsub(1.5, 2) }.to raise_error(TypeError, /Integer/)
     end
   end
 
@@ -202,6 +234,19 @@ RSpec.describe 'Secp256k1Native' do
 
     it 'satisfies a + neg(a) = 0' do
       expect(n.fadd(gx, n.fneg(gx))).to eq(0)
+    end
+
+    # I-3: rb_fneg now pre-reduces; without the fix fneg(P) was P (not 0)
+    # and fneg(>P) was wrong by an offset.
+    it 'is correct for >= P operand [I-3 regression]' do
+      expect(n.fneg(p)).to eq(0)
+      expect(n.fneg(p + 1)).to eq(p - 1)
+      a = (1 << 256) - 1
+      expect(n.fneg(a)).to eq((p - a % p) % p)
+    end
+
+    it 'raises TypeError for non-Integer input [L-1]' do
+      expect { n.fneg(1.5) }.to raise_error(TypeError, /Integer/)
     end
   end
 
@@ -297,12 +342,28 @@ RSpec.describe 'Secp256k1Native' do
 
     # Boundary band: values close to but under 2^256 exercise scalar_reduce's
     # final conditional subtract on hi=0, lo near the top of the 256-bit range.
-    # rb_scalar_mod rejects values >= 2^256, so 2*N etc. cannot be tested here
-    # — see the dfuzz harness for the hi != 0 case.
     it 'matches Integer#% for boundary values up to 2^256 - 1' do
       [curve_n + 2, curve_n + 100, (1 << 256) - 2, (1 << 256) - 1].each do |x|
         expect(n.scalar_mod(x)).to eq(x % curve_n), "x=#{x}"
       end
+    end
+
+    # L-4: rb_scalar_mod previously raised "exceeds 256 bits" for positive
+    # inputs >= 2^256 but accepted the negative counterpart. Now consistent.
+    it 'accepts large positive values >= 2^256 [L-4 regression]' do
+      expect(n.scalar_mod(2**600)).to eq(2**600 % curve_n)
+      expect(n.scalar_mod(2 * curve_n)).to eq(0)
+      expect(n.scalar_mod(2 * curve_n - 1)).to eq(curve_n - 1)
+    end
+
+    # L-1: rb_scalar_mod dispatches Ruby `%` on the input as part of L-4's
+    # canonicalisation; without an Integer guard BEFORE the `%` call, a
+    # String would raise NoMethodError (not TypeError) and any object whose
+    # `%` happens to return an Integer would slip through.
+    it 'raises TypeError for non-Integer input [L-1]' do
+      expect { n.scalar_mod(1.5) }.to raise_error(TypeError, /Integer/)
+      expect { n.scalar_mod('123') }.to raise_error(TypeError, /Integer/)
+      expect { n.scalar_mod(nil) }.to raise_error(TypeError, /Integer/)
     end
 
     it 'matches the Ruby reference for a typical value' do
@@ -440,6 +501,46 @@ RSpec.describe 'Secp256k1Native' do
       a = gx % curve_n
       b = gy % curve_n
       expect(n.scalar_add(a, b)).to eq(ref.scalar_add(a, b))
+    end
+
+    # M-1 (medium): rb_scalar_add now pre-reduces operands. Without the fix,
+    # scalar_add_internal subtracted N at most once, so scalar_add(N, N)
+    # returned a non-canonical N (still in [0, N) but mathematically wrong).
+    # Random testing reaches this with probability ~2^-128 — these
+    # structured vectors are load-bearing.
+    it 'is correct for >= N operands [M-1 regression]' do
+      expect(n.scalar_add(curve_n, curve_n)).to eq(0)
+      a = (1 << 256) - 1
+      expect(n.scalar_add(a, a)).to eq((a + a) % curve_n)
+      expect(n.scalar_add(curve_n + 5, curve_n + 7)).to eq(12)
+    end
+
+    it 'raises TypeError for non-Integer operands [L-1]' do
+      expect { n.scalar_add(1.5, 2) }.to raise_error(TypeError, /Integer/)
+    end
+  end
+
+  # L-1 boundary contract: every public Secp256k1Native wrapper rejects
+  # non-Integer inputs with TypeError. The 256-bit wrappers share the guard
+  # at rb_to_uint256; rb_fred and rb_scalar_mod carry local guards because
+  # they don't flow through rb_to_uint256 (rb_fred packs 8 limbs;
+  # rb_scalar_mod dispatches Ruby `%` first). This shared block catches any
+  # future wrapper added without a guard.
+  describe 'L-1 boundary contract: every public wrapper rejects non-Integer' do
+    # method => arity
+    WRAPPERS_BY_ARITY = {
+      fred: 1, fmul: 2, fsqr: 1, fadd: 2, fsub: 2, fneg: 1, finv: 1, fsqrt: 1,
+      scalar_mod: 1, scalar_mul: 2, scalar_inv: 1, scalar_add: 2
+    }.freeze
+
+    WRAPPERS_BY_ARITY.each do |method, arity|
+      it "##{method} raises TypeError for non-Integer input" do
+        [1.5, '1', nil].each do |bad|
+          args = Array.new(arity, bad)
+          expect { n.send(method, *args) }.to raise_error(TypeError, /Integer/),
+            "expected Secp256k1Native.#{method}(#{args.inspect}) to raise TypeError"
+        end
+      end
     end
   end
 

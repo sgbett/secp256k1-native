@@ -198,22 +198,34 @@ if __name__ == "__main__":
     print(f"in-contract random pass: {args.iters} iters/op-class, {len(fails)} mismatches")
     incontract = len(fails)
 
-    # ---- structured regression vectors that reproduce the documented findings ----
+    # ---- structured regression vectors for documented findings ----
     # These are the load-bearing cases random testing provably cannot reach
-    # (H-1's failing band has density ~2^-384). Each is EXPECTED to diverge on the
-    # reviewed v1.0 tree and must turn clean once the H-1/M-1 fixes land.
-    print("\nstructured regression vectors (expected to diverge until fixed):")
+    # (H-1's failing band has density ~2^-384). Each was EXPECTED to diverge
+    # on the reviewed v1.0 tree; post-#21 (scalar reduction carry) and #22
+    # (boundary input contracts) all should now turn clean. The vectors stay
+    # in the harness as a regression guard.
+    print("\nstructured regression vectors (post-#21 / #22: all should be clean):")
     regr = _run_cases([
+        # #21: scalar reduction carry
         ("smul", [2**256 - 1, N + 2], smul(2**256 - 1, N + 2)),                  # H-1
         ("sreduce", [N + 1, 0], sreduce(N + 1, 0)),                              # I-2 (same root cause)
-        ("sadd", [N, N], sadd(N, N)),                                           # M-1
-        ("sadd", [2**256 - 1, 2**256 - 1], sadd(2**256 - 1, 2**256 - 1)),       # M-1
+        # #22: scalar boundary
+        ("sadd", [N, N], sadd(N, N)),                                            # M-1
+        ("sadd", [2**256 - 1, 2**256 - 1], sadd(2**256 - 1, 2**256 - 1)),        # M-1
+        # #22: field boundary
+        ("fadd", [P - 1, P + 1], fadd(P - 1, P + 1)),                            # L-3
+        ("fneg", [P], fneg(P)),                                                  # I-3
+        ("fsub", [P - 1, P + 5], fsub(P - 1, P + 5)),                            # L-3
     ])
     for op, a, ex, got in regr:
         print(f"  DIVERGES {op}({', '.join(a)}): ref={ex} c={got}")
     if not regr:
-        print("  (none diverge — H-1/M-1 fixes appear to be in place)")
+        print("  (none diverge — all documented findings closed)")
 
     print(f"\nSUMMARY: in-contract mismatches={incontract}; "
-          f"known-defect vectors reproducing={len(regr)}/4")
-    sys.exit(1 if incontract else 0)
+          f"regression vectors diverging={len(regr)}/7")
+    # Fail on either: a new in-contract mismatch (random pass), or a
+    # regression in any of the documented vectors (post-#21/#22 they must
+    # all stay clean).  The wrapper for `make check` / `run-checks.sh`
+    # treats a non-zero exit as FAIL.
+    sys.exit(1 if (incontract or regr) else 0)

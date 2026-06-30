@@ -2,6 +2,7 @@
 *.so
 *.o
 *.a
+*.dSYM/
 Gemfile.lock
 tmp/
 pkg/

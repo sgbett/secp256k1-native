@@ -45,7 +45,13 @@ extern VALUE rb_ary_entry(VALUE ary, long offset);
 /* Error class globals */
 extern VALUE rb_eRuntimeError;
 extern VALUE rb_eArgError;
+extern VALUE rb_eTypeError;
 extern VALUE rb_cInteger;
+
+/* Integer type predicate — the harness only feeds Integer-derived inputs, so
+ * the standalone-build stub treats every value as an Integer.  (Type-rejection
+ * is exercised by RSpec under the real CRuby runtime.) */
+#define RB_INTEGER_TYPE_P(v) 1
 
 /* Integer marshalling */
 extern int   rb_integer_pack(VALUE val, void *words, size_t numwords,

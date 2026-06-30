@@ -56,6 +56,26 @@ Inversion (`finv`) and square root (`fsqrt`) iterate over public constants (P-2 
 
 The scalar operations `scalar_mul_internal`, `scalar_reduce`, and `scalar_add_internal` use branchless conditional selection — bitwise masks from carry/borrow flags and a captured topcarry — with no operand-dependent control flow. After the #21 fix, `scalar_reduce_limbs` is fully branchless: the previous `if (h == 0) continue` and `if (carry3)` guards in the residual fold were removed (the second-fold loop body is a faithful no-op when `h == 0`; the residual fold is now unconditional with topcarry capture, replacing the dropped-carry tail that caused H-1).
 
+### Ruby↔C boundary contracts (#22)
+
+After #22, the Ruby-facing wrappers enforce — not merely document — the Integer-in-`[0, P)` / `[0, N)` contract for every operation:
+
+- All 16 native wrappers reject non-Integer inputs with `TypeError` (L-1). The 256-bit wrappers share one guard at `rb_to_uint256`; `rb_fred` packs 8 limbs directly (for 512-bit intermediates) and carries its own `RB_INTEGER_TYPE_P` guard.
+- `rb_fadd` / `rb_fsub` / `rb_fneg` pre-reduce operands via `fred_internal` so the `_internal` functions' `a, b < P` precondition is always met (L-3, I-3).
+- `rb_scalar_add` pre-reduces both operands mod N (M-1).
+- `rb_scalar_mod` accepts any-width Integer (positive or negative) via Ruby `%` (L-4).
+- `Point#mul` / `#mul_vt` reject non-Integer scalars with `ArgumentError` at the Ruby boundary (L-2). `Point#initialize` rejects y outside `[0, P)`.
+- Pure-Ruby `fsub` / `fneg` canonicalise operands so the dfuzz differential's Ruby oracle agrees with the C wrapper on ≥ P inputs.
+
+The C `_internal` functions retain the documented `a, b < P` / `< N` preconditions and are called directly from `jacobian.c` (which only feeds canonical intermediates) and from the wrappers post-reduction.
+
+#### Pure-Ruby fallback divergences
+
+Two intentional divergences exist between the pure-Ruby module functions (used when the C extension is not loaded) and the native wrappers:
+
+- **Low-level field/scalar methods do not type-check.** `Secp256k1.fmul(1.5, 2)` and similar will compute on the Float value rather than raising `TypeError`. The user-facing `Point#mul` / `#mul_vt` reject non-Integer scalars at the Ruby boundary on both backends; the low-level pure-Ruby methods are documented as expecting `Integer` and do not enforce it. Users who need strict typing on the low-level surface should ensure the C extension is loaded.
+- **`fsub` / `fneg` accept negative inputs in pure-Ruby**, returning the canonical non-negative residue (Ruby `%` semantics). The C wrappers reject negatives via `rb_to_uint256`. Backend parity holds for all non-negative inputs; the dfuzz harness only feeds non-negative inputs so the differential never observes this case.
+
 `scalar_inv_internal` iterates over bits of the public constant N-2 via Fermat's little theorem. The branch on each bit is over public data; the per-iteration `scalar_mul_internal` operates on the secret base and is branchless.
 
 ### Montgomery ladder

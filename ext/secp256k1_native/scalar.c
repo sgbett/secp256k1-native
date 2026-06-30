@@ -293,6 +293,9 @@ static void scalar_sqr_internal(uint256_t *r, const uint256_t *a)
  * scalar_add_internal — modular addition mod N.
  *
  * Computes a + b, then branchlessly subtracts N if the result >= N.
+ *
+ * Precondition: a, b < N (canonical).  Pre-reduction is the wrapper's
+ * responsibility — see rb_scalar_add.
  */
 void scalar_add_internal(uint256_t *r, const uint256_t *a, const uint256_t *b)
 {
@@ -346,25 +349,29 @@ void scalar_inv_internal(uint256_t *r, const uint256_t *a)
  * call-seq:
  *   Secp256k1Native.scalar_mod(a) -> Integer
  *
- * Reduce +a+ modulo the curve order N.  Handles negative Ruby Integers:
- * if +a+ is negative, the result is +a mod N+ in the range [0, N).
+ * Reduce +a+ modulo the curve order N.  Accepts any Ruby Integer — negative,
+ * positive, and arbitrary width (including values >= 2^256).
  */
 static VALUE rb_scalar_mod(VALUE self, VALUE a)
 {
     (void)self;
 
-    /* Handle negative values by delegating to Ruby's own % operator which
-     * always returns a non-negative result for a positive modulus. */
-    VALUE n_rb  = uint256_to_rb(&CURVE_N);
-    int negative = RTEST(rb_funcall(a, rb_intern("<"), 1, INT2FIX(0)));
-
-    VALUE a_norm;
-    if (negative) {
-        /* Ruby % is always non-negative when the modulus is positive */
-        a_norm = rb_funcall(a, rb_intern("%"), 1, n_rb);
-    } else {
-        a_norm = a;
+    /* L-1: reject non-Integer BEFORE Ruby `%` is dispatched on the receiver.
+     * Without this, a String would raise NoMethodError (no `%` of Integer),
+     * and any object whose `%` happens to return an Integer would silently
+     * succeed — both bypass the wrapper's documented TypeError contract. */
+    if (!RB_INTEGER_TYPE_P(a)) {
+        rb_raise(rb_eTypeError, "expected Integer");
     }
+
+    /* L-4: pre-reduce via Ruby `%` unconditionally.  This is intentionally
+     * different from the other scalar wrappers (which use the C-level
+     * scalar_reduce): Ruby `%` handles both negative inputs (returns the
+     * non-negative residue) and arbitrary width (rb_to_uint256 would raise
+     * "exceeds 256 bits" on values >= 2^256 otherwise), so it is the right
+     * canonicalisation primitive at this boundary. */
+    VALUE n_rb  = uint256_to_rb(&CURVE_N);
+    VALUE a_norm = rb_funcall(a, rb_intern("%"), 1, n_rb);
 
     uint256_t ua = rb_to_uint256(a_norm);
     uint256_t zero_limbs = {{ 0ULL, 0ULL, 0ULL, 0ULL }};
@@ -437,8 +444,18 @@ static VALUE rb_scalar_add(VALUE self, VALUE a, VALUE b)
     (void)self;
     uint256_t ua = rb_to_uint256(a);
     uint256_t ub = rb_to_uint256(b);
+
+    /* M-1 correctness fix: scalar_add_internal subtracts N at most once and is
+     * therefore correct only when both operands are already < N.  Pre-reduce
+     * both operands mod N so the wrapper's documented `(a + b) mod N` contract
+     * holds for any 256-bit input (mirrors rb_scalar_inv / rb_scalar_mul). */
+    uint256_t zero_limbs = {{ 0ULL, 0ULL, 0ULL, 0ULL }};
+    uint256_t ua_reduced, ub_reduced;
+    scalar_reduce(&ua_reduced, &zero_limbs, &ua);
+    scalar_reduce(&ub_reduced, &zero_limbs, &ub);
+
     uint256_t r;
-    scalar_add_internal(&r, &ua, &ub);
+    scalar_add_internal(&r, &ua_reduced, &ub_reduced);
     return uint256_to_rb(&r);
 }
 

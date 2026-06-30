@@ -24,8 +24,24 @@
  * so that only one copy of each function exists in the linked extension.
  * ----------------------------------------------------------------------- */
 
+/*
+ * Marshal a Ruby Integer into a uint256_t.
+ *
+ * @raise [TypeError] if rb_int is not an Integer (L-1: rejects Float,
+ *   Rational, BigDecimal, nil, anything responding to #to_int).
+ * @raise [ArgumentError] if rb_int is negative or exceeds 256 bits.
+ */
 uint256_t rb_to_uint256(VALUE rb_int)
 {
+    /* L-1: reject non-Integer before reaching rb_integer_pack, which itself
+     * calls rb_to_int and would silently coerce Float / Rational / objects
+     * responding to #to_int.  This check is the single load-bearing guard
+     * for ALL 16 wrappers' Integer contract — it must come FIRST, before
+     * rb_integer_pack mutates the input. */
+    if (!RB_INTEGER_TYPE_P(rb_int)) {
+        rb_raise(rb_eTypeError, "expected Integer");
+    }
+
     uint256_t n;
     memset(&n, 0, sizeof(n));
     int result = rb_integer_pack(rb_int, n.d, 4, sizeof(uint64_t), 0, U256_PACK_FLAGS);
@@ -307,6 +323,10 @@ void fsqr_internal(uint256_t *r, const uint256_t *a)
  * fadd_internal — modular addition.
  *
  * Computes a + b, then branchlessly subtracts P if the result >= P.
+ *
+ * Precondition: a, b < P (canonical).  Pre-reduction is the wrapper's
+ * responsibility — see rb_fadd.  The Jacobian path (jacobian.c) only feeds
+ * canonical intermediates produced by other internals.
  */
 void fadd_internal(uint256_t *r, const uint256_t *a, const uint256_t *b)
 {
@@ -334,6 +354,8 @@ void fadd_internal(uint256_t *r, const uint256_t *a, const uint256_t *b)
  * fsub_internal — modular subtraction.
  *
  * Computes a - b; if the result underflows, adds P back — branchlessly.
+ *
+ * Precondition: a, b < P (canonical) — see fadd_internal.
  */
 void fsub_internal(uint256_t *r, const uint256_t *a, const uint256_t *b)
 {
@@ -357,6 +379,8 @@ void fsub_internal(uint256_t *r, const uint256_t *a, const uint256_t *b)
  * fneg_internal — modular negation.
  *
  * Returns P - a for non-zero a, and 0 for a == 0 — branchlessly.
+ *
+ * Precondition: a < P (canonical) — see fadd_internal.
  */
 void fneg_internal(uint256_t *r, const uint256_t *a)
 {
@@ -455,6 +479,14 @@ int fsqrt_internal(uint256_t *r, const uint256_t *a)
 static VALUE rb_fred(VALUE self, VALUE x)
 {
     (void)self;
+    /* L-1: reject non-Integer before rb_integer_pack, which would silently
+     * coerce Float / Rational / objects responding to #to_int.  rb_fred packs
+     * 8 limbs (vs 4 in rb_to_uint256), so it does not flow through that
+     * helper — guard locally to honour the same boundary contract. */
+    if (!RB_INTEGER_TYPE_P(x)) {
+        rb_raise(rb_eTypeError, "expected Integer");
+    }
+
     /* fred is used for reducing wide intermediates.  Pack into 8 limbs. */
     uint64_t limbs[8];
     memset(limbs, 0, sizeof(limbs));
@@ -519,8 +551,17 @@ static VALUE rb_fadd(VALUE self, VALUE a, VALUE b)
     (void)self;
     uint256_t ua = rb_to_uint256(a);
     uint256_t ub = rb_to_uint256(b);
+
+    /* L-3: pre-reduce operands so fadd_internal's `a, b < P` precondition is
+     * always satisfied (mirrors rb_finv / rb_fsqrt).  fred handles 512-bit
+     * inputs; here we use hi=0 so it's a single fast pass on each operand. */
+    uint256_t zero_limbs = {{ 0ULL, 0ULL, 0ULL, 0ULL }};
+    uint256_t ua_reduced, ub_reduced;
+    fred_internal(&ua_reduced, &zero_limbs, &ua);
+    fred_internal(&ub_reduced, &zero_limbs, &ub);
+
     uint256_t r;
-    fadd_internal(&r, &ua, &ub);
+    fadd_internal(&r, &ua_reduced, &ub_reduced);
     return uint256_to_rb(&r);
 }
 
@@ -535,8 +576,15 @@ static VALUE rb_fsub(VALUE self, VALUE a, VALUE b)
     (void)self;
     uint256_t ua = rb_to_uint256(a);
     uint256_t ub = rb_to_uint256(b);
+
+    /* L-3: pre-reduce operands (see rb_fadd). */
+    uint256_t zero_limbs = {{ 0ULL, 0ULL, 0ULL, 0ULL }};
+    uint256_t ua_reduced, ub_reduced;
+    fred_internal(&ua_reduced, &zero_limbs, &ua);
+    fred_internal(&ub_reduced, &zero_limbs, &ub);
+
     uint256_t r;
-    fsub_internal(&r, &ua, &ub);
+    fsub_internal(&r, &ua_reduced, &ub_reduced);
     return uint256_to_rb(&r);
 }
 
@@ -550,8 +598,15 @@ static VALUE rb_fneg(VALUE self, VALUE a)
 {
     (void)self;
     uint256_t ua = rb_to_uint256(a);
+
+    /* L-3 / I-3: pre-reduce the operand so fneg_internal's `a < P`
+     * precondition is always satisfied (mirrors rb_finv / rb_fsqrt). */
+    uint256_t zero_limbs = {{ 0ULL, 0ULL, 0ULL, 0ULL }};
+    uint256_t ua_reduced;
+    fred_internal(&ua_reduced, &zero_limbs, &ua);
+
     uint256_t r;
-    fneg_internal(&r, &ua);
+    fneg_internal(&r, &ua_reduced);
     return uint256_to_rb(&r);
 }
 
