@@ -502,6 +502,13 @@ module Secp256k1
     # @raise [ArgumentError] if (x, y) is not on the curve, or if x or y
     #   is not an Integer in [0, P) (raised by `new`)
     def self.from_coordinates(x, y)
+      # Reject the (nil, nil) infinity shape that Point.new accepts. This
+      # method's contract is "raw (x, y) Integers"; callers wanting infinity
+      # should use Point.infinity (or Point.new(nil, nil) on the internal path).
+      # Without this check, on_curve? returns true for infinity and we would
+      # silently return it.
+      raise ArgumentError, 'x and y must be Integers' if x.nil? || y.nil?
+
       pt = new(x, y)
       raise ArgumentError, 'point is not on the secp256k1 curve' unless pt.on_curve?
 

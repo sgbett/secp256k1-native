@@ -255,6 +255,21 @@ RSpec.describe Secp256k1 do
         expect { described_class.from_coordinates(1.5, 2) }
           .to raise_error(ArgumentError, /Integers in \[0, P\)/)
       end
+
+      # Without an explicit nil guard, Point.new(nil, nil) would succeed
+      # (infinity) and on_curve? would return true — silently returning
+      # infinity from a method documented as validating raw coordinates.
+      it 'raises ArgumentError for (nil, nil) — use Point.infinity instead' do
+        expect { described_class.from_coordinates(nil, nil) }
+          .to raise_error(ArgumentError, /x and y must be Integers/)
+      end
+
+      it 'raises ArgumentError for partial nil (x or y)' do
+        expect { described_class.from_coordinates(nil, 2) }
+          .to raise_error(ArgumentError, /x and y must be Integers/)
+        expect { described_class.from_coordinates(1, nil) }
+          .to raise_error(ArgumentError, /x and y must be Integers/)
+      end
     end
 
     describe '.from_bytes' do
