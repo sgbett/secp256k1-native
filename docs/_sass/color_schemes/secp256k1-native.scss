@@ -1,0 +1,43 @@
+// Migrated from MkDocs Material; primary: deep purple (#673AB7), accent: amber (#FFC107).
+// Light variant. The dark variant lives in `secp256k1-native-dark.scss` and is wired
+// via `color_scheme_dark` in `_config.yml` — just-the-docs ships separate light/dark
+// scheme files (a single `@import "./color_schemes/{{ include.color_scheme }}"` per
+// build), not a single file with a `prefers-color-scheme` block.
+//
+// Material palette references:
+//   deep purple  500 #673AB7   400 #7E57C2   700 #5E35B1
+//   amber        500 #FFC107   400 #FFCA28   700 #FFB300
+//
+// Self-contained — depends only on just-the-docs base variables (greys, defaults).
+
+$color-scheme: light !default;
+
+// Brand colours (named for clarity; not part of just-the-docs API)
+$deep-purple-400: #7e57c2;
+$deep-purple-500: #673ab7;
+$deep-purple-700: #5e35b1;
+$amber-400: #ffca28;
+$amber-500: #ffc107;
+$amber-700: #ffb300;
+
+// just-the-docs variable overrides
+$body-background-color: $white !default;
+$body-heading-color: $deep-purple-700 !default;
+$body-text-color: $grey-dk-100 !default;
+$link-color: $deep-purple-700 !default;
+$nav-child-link-color: $deep-purple-500 !default;
+$sidebar-color: $grey-lt-000 !default;
+$base-button-color: #f7f7f7 !default;
+$btn-primary-color: $deep-purple-500 !default;
+$code-background-color: $white !default;
+$feedback-color: darken($sidebar-color, 3%) !default;
+$table-background-color: $white !default;
+$search-background-color: $white !default;
+$search-result-preview-color: $grey-dk-100 !default;
+
+// Amber accent reserved for future use (e.g. callouts, code anchor markers).
+// Surfaced as a !default so downstream overrides can re-bind it without editing
+// this file.
+$accent-color: $amber-500 !default;
+
+@import "./vendor/accessible-pygments/github-light";
