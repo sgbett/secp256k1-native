@@ -307,7 +307,10 @@ module Secp256k1
 
   # @!visibility private
   # Cache for precomputed wNAF tables, keyed by "window:x:y".
-  # Evicts oldest entry when the LRU limit is reached.
+  # FIFO eviction: the oldest *inserted* entry is dropped when the cap
+  # is reached (Hash preserves insertion order; we delete the first key).
+  # Bounded at WNAF_CACHE_MAX entries; keyed only on the public base
+  # point — no secret-scalar exposure.
   WNAF_TABLE_CACHE = {} # rubocop:disable Style/MutableConstant
 
   # @!visibility private
