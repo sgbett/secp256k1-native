@@ -260,6 +260,18 @@ RSpec.describe Secp256k1 do
         expect { described_class.from_bytes("\u0004#{"\x00" * 63}") }.to raise_error(ArgumentError, /invalid uncompressed/)
       end
 
+      # I-4: previously these raised NoMethodError (on .encoding or
+      # nil.to_s) instead of ArgumentError.
+      it 'raises ArgumentError on non-String input [I-4]' do
+        expect { described_class.from_bytes(nil) }.to raise_error(ArgumentError, /non-empty String/)
+        expect { described_class.from_bytes(123) }.to raise_error(ArgumentError, /non-empty String/)
+        expect { described_class.from_bytes(1.5) }.to raise_error(ArgumentError, /non-empty String/)
+      end
+
+      it 'raises ArgumentError on empty String [I-4]' do
+        expect { described_class.from_bytes('') }.to raise_error(ArgumentError, /non-empty String/)
+      end
+
       it 'raises on point not on curve' do
         bad = "\x04".b + s.int_to_bytes(1, 32) + s.int_to_bytes(2, 32)
         expect { described_class.from_bytes(bad) }.to raise_error(ArgumentError, /not on the curve/)

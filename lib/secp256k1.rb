@@ -500,6 +500,15 @@ module Secp256k1
     # @raise [ArgumentError] if the encoding is invalid or the point
     #   is not on the curve
     def self.from_bytes(bytes)
+      # I-4: reject non-String / empty input up front with a clean
+      # ArgumentError. Without this, nil / Float / Integer raise
+      # NoMethodError (on `.encoding`), and an empty String raises
+      # NoMethodError (on `nil.to_s` in the else-branch error formatting).
+      # All fail closed either way, but the error type is wrong.
+      unless bytes.is_a?(String) && !bytes.empty?
+        raise ArgumentError, 'bytes must be a non-empty String'
+      end
+
       bytes = bytes.b if bytes.encoding != Encoding::BINARY
       prefix = bytes.getbyte(0)
 
