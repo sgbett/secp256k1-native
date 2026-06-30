@@ -224,4 +224,8 @@ if __name__ == "__main__":
 
     print(f"\nSUMMARY: in-contract mismatches={incontract}; "
           f"regression vectors diverging={len(regr)}/7")
-    sys.exit(1 if incontract else 0)
+    # Fail on either: a new in-contract mismatch (random pass), or a
+    # regression in any of the documented vectors (post-#21/#22 they must
+    # all stay clean).  The wrapper for `make check` / `run-checks.sh`
+    # treats a non-zero exit as FAIL.
+    sys.exit(1 if (incontract or regr) else 0)

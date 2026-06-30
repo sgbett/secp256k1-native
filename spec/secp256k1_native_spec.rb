@@ -356,8 +356,14 @@ RSpec.describe 'Secp256k1Native' do
       expect(n.scalar_mod(2 * curve_n - 1)).to eq(curve_n - 1)
     end
 
+    # L-1: rb_scalar_mod dispatches Ruby `%` on the input as part of L-4's
+    # canonicalisation; without an Integer guard BEFORE the `%` call, a
+    # String would raise NoMethodError (not TypeError) and any object whose
+    # `%` happens to return an Integer would slip through.
     it 'raises TypeError for non-Integer input [L-1]' do
       expect { n.scalar_mod(1.5) }.to raise_error(TypeError, /Integer/)
+      expect { n.scalar_mod('123') }.to raise_error(TypeError, /Integer/)
+      expect { n.scalar_mod(nil) }.to raise_error(TypeError, /Integer/)
     end
 
     it 'matches the Ruby reference for a typical value' do

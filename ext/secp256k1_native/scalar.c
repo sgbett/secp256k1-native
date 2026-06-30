@@ -356,6 +356,14 @@ static VALUE rb_scalar_mod(VALUE self, VALUE a)
 {
     (void)self;
 
+    /* L-1: reject non-Integer BEFORE Ruby `%` is dispatched on the receiver.
+     * Without this, a String would raise NoMethodError (no `%` of Integer),
+     * and any object whose `%` happens to return an Integer would silently
+     * succeed — both bypass the wrapper's documented TypeError contract. */
+    if (!RB_INTEGER_TYPE_P(a)) {
+        rb_raise(rb_eTypeError, "expected Integer");
+    }
+
     /* L-4: pre-reduce via Ruby `%` unconditionally.  This is intentionally
      * different from the other scalar wrappers (which use the C-level
      * scalar_reduce): Ruby `%` handles both negative inputs (returns the

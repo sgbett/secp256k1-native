@@ -27,6 +27,7 @@ typedef uintptr_t VALUE;
 VALUE rb_cInteger;
 VALUE rb_eRuntimeError;
 VALUE rb_eArgError;
+VALUE rb_eTypeError;
 
 /* Module handle declared extern in secp256k1_native.h */
 VALUE rb_mSecp256k1Native;
