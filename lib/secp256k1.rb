@@ -336,7 +336,7 @@ module Secp256k1
     tbl = WNAF_TABLE_CACHE[cache_key]
 
     if tbl.nil?
-      # Evict the oldest entry when the cache is full (simple LRU).
+      # FIFO eviction: drop the oldest *inserted* entry when the cache is full.
       WNAF_TABLE_CACHE.delete(WNAF_TABLE_CACHE.keys.first) if WNAF_TABLE_CACHE.size >= WNAF_CACHE_MAX
 
       tbl_size = 1 << (window - 1) # e.g. w=5 -> 16 entries
