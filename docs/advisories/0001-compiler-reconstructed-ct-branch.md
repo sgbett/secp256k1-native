@@ -43,8 +43,11 @@ scalar bits — the classic ECC private-key/nonce timing-attack setting
 so source review and the deterministic ctgrind check on a *non-reconstructing*
 toolchain do not reveal it.
 
-Pre-1.0 with no known dependents, so this is handled as fix-and-document per the
-CLAUDE.md disclosure process rather than a coordinated CVE timeline.
+Pre-1.0 with no published RubyGems dependents, so this is handled as
+fix-publish-and-document: full GHSA + CVE record, without a coordinated
+downstream-notification timeline (no dependency graph to coordinate with).
+The CVE is filed for citability and so the empirical record (paper → review →
+compiler regression → fix) is permanent and searchable.
 
 ## Affected configurations
 
