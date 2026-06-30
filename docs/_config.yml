@@ -15,10 +15,13 @@ plugins:
 
 defaults:
   - scope:
-      path: "reference"
+      path: ""
     values:
-      nav_exclude: true
-      search_exclude: true
+      layout: default
+  - scope:
+      path: "reference/Secp256k1"
+    values:
+      parent: API Reference
 
 exclude:
   - Gemfile

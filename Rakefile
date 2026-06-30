@@ -29,7 +29,7 @@ namespace :docs do
     FileUtils.rm_rf(output_dir)
     FileUtils.mkdir_p(output_dir)
     sh 'bundle exec yardoc --plugin markdown --format markdown --output-dir docs/reference lib/**/*.rb'
-    generate_reference_index(output_dir)
+    inject_reference_frontmatter(output_dir)
   end
 
   desc 'Build the Jekyll docs site'
@@ -106,32 +106,21 @@ end
 desc 'Generate, build, lint, and proofread the docs site'
 task docs: %w[docs:generate docs:build docs:lint docs:proofread]
 
-def generate_reference_index(output_dir)
+def inject_reference_frontmatter(output_dir)
   require 'csv'
   csv_path = File.join(output_dir, 'index.csv')
   return unless File.exist?(csv_path)
 
-  modules = []
-  classes = []
   CSV.foreach(csv_path, headers: true) do |row|
     next unless %w[Module Class].include?(row['type'])
 
-    entry = { name: row['name'], path: row['path'] }
-    row['type'] == 'Module' ? modules << entry : classes << entry
-  end
+    file = File.join(output_dir, row['path'])
+    next unless File.exist?(file)
 
-  File.open(File.join(output_dir, 'index.md'), 'w') do |f|
-    f.puts '# API Reference'
-    f.puts
-    f.puts 'Auto-generated from source using [YARD](https://yardoc.org/).'
-    f.puts
-    f.puts '## Modules'
-    f.puts
-    modules.sort_by { |e| e[:name] }.each { |e| f.puts "- [#{e[:name]}](#{e[:path]})" }
-    f.puts
-    f.puts '## Classes'
-    f.puts
-    classes.sort_by { |e| e[:name] }.each { |e| f.puts "- [#{e[:name]}](#{e[:path]})" }
+    content = File.read(file)
+    next if content.start_with?('---')
+
+    File.write(file, "---\ntitle: #{row['name']}\nparent: API Reference\n---\n\n#{content}")
   end
 end
 

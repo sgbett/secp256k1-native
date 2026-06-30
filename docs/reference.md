@@ -6,7 +6,5 @@ has_children: true
 
 # API Reference
 
-Auto-generated from source using [YARD](https://yardoc.org/).
-
-- [Secp256k1 module](Secp256k1.html)
-- [Secp256k1::Point class](Secp256k1/Point.html)
+Auto-generated from source using [YARD](https://yardoc.org/). The `Secp256k1`
+module and its classes are listed in the sidebar.

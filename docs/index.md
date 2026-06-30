@@ -47,7 +47,7 @@ decoded = Secp256k1::Point.from_bytes(compressed)
 - [Security](security.md) — constant-time properties, API safety guide, thread safety
 - [Performance](performance.md) — benchmarks and the security case for native acceleration
 - [Design rationale](design.md) — why pure Ruby, why not FFI
-- [API Reference](reference/index.md) — auto-generated from source
+- [API Reference](reference.md) — auto-generated from source
 
 ## Licence
 
