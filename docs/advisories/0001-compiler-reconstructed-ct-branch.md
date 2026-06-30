@@ -10,7 +10,7 @@
 | **Severity** | High (timing side-channel on the secret scalar) |
 | **CVSS v3.1** | `AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N` (5.9) — confidentiality-only; attack complexity High (statistical timing recovery). The score is *consumer-dependent*: this gem ships no network surface of its own. |
 | **CWE** | CWE-208 (Observable Timing Discrepancy); CWE-1255 (compiler removal of a security-relevant code construct) |
-| **Affected versions** | Builds containing the branchless `uint256_select` (introduced with the 0.17.0 `jp_add_internal` |t|=875 fix) **when compiled by a C compiler that reconstructs the select into a branch.** Confirmed on GCC 15.2.0 at `-O2` (the shipped optimisation level). The lower bound across GCC versions has not been bisected; clang and older GCC were not observed to branchify. |
+| **Affected versions** | Builds containing the branchless `uint256_select` (introduced with the 0.17.0 `jp_add_internal` |t|=875 fix) **when compiled by a C compiler that reconstructs the select into a branch.** Observed reconstructing into a secret-dependent branch at `-O2` on **GCC 14.3.0, 15.1.0, and 15.2.0**; GCC 13.3.0 compiled it to a constant-time `cmov` and GCC ≤ 12.4.0 to pure bitwise ops, so the reconstruction first appears in the 13→14 range. Not exhaustively bisected across point releases, targets, or flag sets; GCC 16 and clang untested. Treat as compiler-and-flags-dependent, not a fixed version range (see *Affected configurations*). |
 | **Patched in** | `0.18.0` — value barrier on all constant-time select masks. |
 | **Found by** | Bare-metal dudect verification (issue #25). |
 
@@ -52,16 +52,30 @@ compiler regression → fix) is permanent and searchable.
 ## Affected configurations
 
 The defect is a property of the (source, compiler, flags) triple, not the source
-alone:
+alone.
+
+**Compiler — where the reconstruction happens.** A reproducible sweep of the same
+pre-fix source under GCC 9.5–15.1 (all from one pinned `nixpkgs`, `-O2`, see the
+flake in `flake.nix`) locates the regression at the 13→14 boundary:
+
+| GCC | pre-fix `uint256_select` codegen | leak? |
+|---|---|---|
+| ≤ 12.4.0 | pure bitwise ops (intended branchless) | no |
+| 13.3.0 | constant-time `cmov` (recognises the select) | no — benign |
+| 14.3.0 / 15.1.0 / 15.2.0 | secret-dependent `je`/`jne` | **yes** |
+
+The extension ships with `-O2` (`extconf.rb` appends it), so a binary built by an
+affected GCC (14/15) is affected. GCC 16 and clang are untested, and this is not
+exhaustively bisected across point releases, targets, or flag sets — treat as
+compiler-and-flags-dependent, not a fixed version range.
 
 - **Source:** any build with the branchless `uint256_select` (0.17.0 onward).
-- **Compiler:** one that reconstructs the all-0s/all-1s select into a branch.
-  Confirmed: **GCC 15.2.0, `-O2`**. The extension ships with `-O2`
-  (`extconf.rb` appends it), so the shipped binary on this compiler is affected.
 - **Not affected:** the pure-Ruby path (different code; separately not claimed
-  constant-time), and toolchains that emit `cmov` or pure bitwise ops here
-  (the review's original toolchain, which is why earlier ctgrind/dudect runs
-  did not flag it).
+  constant-time); GCC ≤ 13 (pre-fix it emits bitwise ops or a constant-time
+  `cmov`, not a branch — note that `cmov`-on-secret still trips ctgrind but is not
+  a timing leak); and **any** compiler once the value-barrier patch is applied —
+  the fixed source compiles to pure bitwise ops on all of GCC 9.5–15.1 (0 `je`/`jne`,
+  0 `cmov`).
 
 ## Patch
 
