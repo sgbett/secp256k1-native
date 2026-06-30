@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- **Compiler-reconstructed timing side-channel in `Point#mul` (the secret-scalar Montgomery ladder).** Bare-metal dudect verification (issue #25; AMD Ryzen 9 9950X, GCC 15.2, `-O2`) found that GCC 15.2 reconstructs the branchless `(a & ~mask) | (b & mask)` select idiom in `uint256_select` into a secret-dependent conditional jump, leaking the scalar at dudect |t| ≈ 21. This silently undid the 0.17.0 |t|=875 fix, which relied on that select being branchless. Fixed with a value barrier (`ct_value_barrier_u64`) applied via a single `ct_mask_u64` helper to **every** constant-time select mask in the extension (`uint256_select`, `fred`/`fadd`/`fsub`/`fneg`, `scalar_reduce`/`scalar_add`, the `jp_double` infinity select, and the ladder `cswap`). Re-verified: disassembly shows no branch/`cmov` at any select line, ctgrind clean, dudect `scalar_multiply_ct` |t| → 0.68 mean (0/20 runs over 4.5). See [advisory 0001](docs/advisories/0001-compiler-reconstructed-ct-branch.md). Only `uint256_select` actively branchified under this compiler; the other sites are hardened as defence-in-depth.
+
+### Changed
+
+- Bare-metal dudect timing verification is now a **required pre-tag release gate** (not a one-off): a constant-time *source* is not a constant-time *binary*, and a compiler upgrade can silently reintroduce a branch that only a statistical run on the shipping compiler observes. Documented in [`docs/security.md`](docs/security.md#empirical-timing-verification) and [`docs/timing-verification-runbook.md`](docs/timing-verification-runbook.md).
+
+### Build
+
+- Timing harness (`timing/`) now builds on modern GCC/glibc toolchains: define `_POSIX_C_SOURCE` for `clock_gettime` under `-std=c99`, and add `-fcommon` for the `rb_mSecp256k1Native` tentative definition under GCC 10+ `-fno-common`.
+
 ## [0.17.0] - 2026-05-01
 
 ### Added

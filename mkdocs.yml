@@ -52,6 +52,7 @@ nav:
       - Report: security-review-v1.md
       - Running the checks: running-checks.md
       - Timing runbook: timing-verification-runbook.md
+      - 'Advisory 0001 — CT branch': advisories/0001-compiler-reconstructed-ct-branch.md
   - Performance: performance.md
   - Design Rationale: design.md
   - API Reference:
