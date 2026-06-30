@@ -131,7 +131,7 @@ void jp_double_internal(uint256_t r[3], const uint256_t p[3])
      * Compute mask = all 1s if Y1 is zero, all 0s otherwise.
      * Use the mask to select between [x3, y3, z3] and JP_INFINITY. */
     uint64_t is_zero = uint256_is_zero(&p[1]);
-    uint64_t mask = -(uint64_t)(is_zero != 0); /* all 1s if Y1 == 0 */
+    uint64_t mask = ct_mask_u64(is_zero); /* all 1s if Y1 == 0 */
     int i;
     for (i = 0; i < 4; i++) {
         r[0].d[i] = (x3.d[i] & ~mask) | (JP_INF_X.d[i] & mask);
@@ -383,7 +383,7 @@ static VALUE rb_jp_neg(VALUE self, VALUE rb_point)
  */
 static void cswap(uint64_t bit, uint256_t a[3], uint256_t b[3])
 {
-    uint64_t mask = -(uint64_t)bit; /* all-ones if bit==1, all-zeros if bit==0 */
+    uint64_t mask = ct_mask_u64(bit); /* all-ones if bit==1, all-zeros if bit==0 */
     int j, k;
     for (j = 0; j < 3; j++) {
         for (k = 0; k < 4; k++) {
