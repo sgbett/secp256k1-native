@@ -458,7 +458,13 @@ int fsqrt_internal(uint256_t *r, const uint256_t *a)
         diff |= (check.d[i] ^ a_reduced.d[i]);
     }
 
-    if (diff != 0) return 0; /* not a quadratic residue */
+    if (diff != 0) {
+        /* Not a quadratic residue.  Honour the docstring contract by
+         * writing a defined value to *r so callers cannot inadvertently
+         * read uninitialised memory if they ignore the return code. */
+        uint256_copy(r, &zero);
+        return 0;
+    }
 
     uint256_copy(r, &result);
     return 1;
