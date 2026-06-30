@@ -9,6 +9,13 @@
  * calls work.  Timing test routines will be added in subsequent tasks.
  */
 
+/* clock_gettime/CLOCK_MONOTONIC are POSIX; under -std=c99 glibc hides them
+ * unless _POSIX_C_SOURCE is set before any system header is included. The
+ * Apple branch uses mach_time instead, so scope this to non-Apple. */
+#if !defined(__APPLE__)
+#define _POSIX_C_SOURCE 199309L
+#endif
+
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
