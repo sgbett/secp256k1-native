@@ -293,6 +293,9 @@ static void scalar_sqr_internal(uint256_t *r, const uint256_t *a)
  * scalar_add_internal — modular addition mod N.
  *
  * Computes a + b, then branchlessly subtracts N if the result >= N.
+ *
+ * Precondition: a, b < N (canonical).  Pre-reduction is the wrapper's
+ * responsibility — see rb_scalar_add.
  */
 void scalar_add_internal(uint256_t *r, const uint256_t *a, const uint256_t *b)
 {

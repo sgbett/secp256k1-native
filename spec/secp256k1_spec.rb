@@ -193,6 +193,33 @@ RSpec.describe Secp256k1 do
       end
     end
 
+    describe '.new (I-3 mitigation: y-range guard)' do
+      it 'accepts valid x, y' do
+        expect(described_class.new(1, 2).y).to eq(2)
+      end
+
+      it 'accepts the point at infinity (nil, nil)' do
+        expect(described_class.new(nil, nil).infinity?).to be true
+      end
+
+      # I-3: a non-canonical y stored in @y leaks through Point#negate
+      # (which calls fneg(y)) returning a non-canonical result. Closing
+      # at the constructor.
+      it 'raises ArgumentError for y >= P' do
+        expect { described_class.new(1, s::P) }.to raise_error(ArgumentError, /y must be/)
+        expect { described_class.new(1, s::P + 1) }.to raise_error(ArgumentError, /y must be/)
+      end
+
+      it 'raises ArgumentError for negative y' do
+        expect { described_class.new(1, -1) }.to raise_error(ArgumentError, /y must be/)
+      end
+
+      it 'raises ArgumentError for non-Integer y' do
+        expect { described_class.new(1, 1.5) }.to raise_error(ArgumentError, /y must be/)
+        expect { described_class.new(1, '2') }.to raise_error(ArgumentError, /y must be/)
+      end
+    end
+
     describe '.from_bytes' do
       let(:g) { described_class.generator }
       let(:compressed) { g.to_octet_string(:compressed) }
@@ -303,6 +330,17 @@ RSpec.describe Secp256k1 do
           expect(g.mul(k)).to eq(g.mul_vt(k))
         end
       end
+
+      # L-2: pre-fix, Float scalars passed through `scalar.zero?` and
+      # `scalar %= N` (both valid for Float) then silently truncated in the
+      # native marshal.
+      it 'raises ArgumentError for Float scalar [L-2]' do
+        expect { g.mul(1.5) }.to raise_error(ArgumentError, /Integer/)
+      end
+
+      it 'raises ArgumentError for nil scalar [L-2]' do
+        expect { g.mul(nil) }.to raise_error(ArgumentError, /Integer/)
+      end
     end
 
     describe '#mul_ct (deprecated alias for #mul)' do
@@ -345,6 +383,14 @@ RSpec.describe Secp256k1 do
 
       it 'infinity * scalar = infinity' do
         expect(described_class.infinity.mul_vt(42).infinity?).to be true
+      end
+
+      it 'raises ArgumentError for Float scalar [L-2]' do
+        expect { g.mul_vt(1.5) }.to raise_error(ArgumentError, /Integer/)
+      end
+
+      it 'raises ArgumentError for nil scalar [L-2]' do
+        expect { g.mul_vt(nil) }.to raise_error(ArgumentError, /Integer/)
       end
     end
 

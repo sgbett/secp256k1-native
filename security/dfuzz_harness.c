@@ -50,14 +50,27 @@ int main(void) {
             hex_to_u256(h[0], &a);
             uint256_t r; fsqr_internal(&r, &a); print_u256(&r); printf("\n");
         } else if (strcmp(op, "fadd") == 0) {
+            /* Mirror rb_fadd: pre-reduce operands via fred_internal so the
+             * differential tests post-wrapper behaviour (L-3 fix lives in the
+             * wrapper; fadd_internal still assumes a, b < P). */
             hex_to_u256(h[0], &a); hex_to_u256(h[1], &b);
-            uint256_t r; fadd_internal(&r, &a, &b); print_u256(&r); printf("\n");
+            uint256_t zero = {{0,0,0,0}}, a_red, b_red;
+            fred_internal(&a_red, &zero, &a);
+            fred_internal(&b_red, &zero, &b);
+            uint256_t r; fadd_internal(&r, &a_red, &b_red); print_u256(&r); printf("\n");
         } else if (strcmp(op, "fsub") == 0) {
+            /* Mirror rb_fsub: pre-reduce operands (L-3). */
             hex_to_u256(h[0], &a); hex_to_u256(h[1], &b);
-            uint256_t r; fsub_internal(&r, &a, &b); print_u256(&r); printf("\n");
+            uint256_t zero = {{0,0,0,0}}, a_red, b_red;
+            fred_internal(&a_red, &zero, &a);
+            fred_internal(&b_red, &zero, &b);
+            uint256_t r; fsub_internal(&r, &a_red, &b_red); print_u256(&r); printf("\n");
         } else if (strcmp(op, "fneg") == 0) {
+            /* Mirror rb_fneg: pre-reduce operand (I-3). */
             hex_to_u256(h[0], &a);
-            uint256_t r; fneg_internal(&r, &a); print_u256(&r); printf("\n");
+            uint256_t zero = {{0,0,0,0}}, a_red;
+            fred_internal(&a_red, &zero, &a);
+            uint256_t r; fneg_internal(&r, &a_red); print_u256(&r); printf("\n");
         } else if (strcmp(op, "finv") == 0) {
             hex_to_u256(h[0], &a);
             uint256_t r; finv_internal(&r, &a); print_u256(&r); printf("\n");
@@ -72,8 +85,14 @@ int main(void) {
             hex_to_u256(h[0], &a); hex_to_u256(h[1], &b);
             uint256_t r; scalar_mul_internal(&r, &a, &b); print_u256(&r); printf("\n");
         } else if (strcmp(op, "sadd") == 0) {
+            /* Mirror rb_scalar_add: pre-reduce operands via scalar_reduce so
+             * the differential tests post-wrapper behaviour (M-1 fix lives in
+             * the wrapper; scalar_add_internal still assumes a, b < N). */
             hex_to_u256(h[0], &a); hex_to_u256(h[1], &b);
-            uint256_t r; scalar_add_internal(&r, &a, &b); print_u256(&r); printf("\n");
+            uint256_t zero = {{0,0,0,0}}, a_red, b_red;
+            scalar_reduce(&a_red, &zero, &a);
+            scalar_reduce(&b_red, &zero, &b);
+            uint256_t r; scalar_add_internal(&r, &a_red, &b_red); print_u256(&r); printf("\n");
         } else if (strcmp(op, "sinv") == 0) {
             hex_to_u256(h[0], &a);
             uint256_t r; scalar_inv_internal(&r, &a); print_u256(&r); printf("\n");

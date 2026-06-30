@@ -24,6 +24,13 @@
  * so that only one copy of each function exists in the linked extension.
  * ----------------------------------------------------------------------- */
 
+/*
+ * Marshal a Ruby Integer into a uint256_t.
+ *
+ * @raise [TypeError] if rb_int is not an Integer (L-1: rejects Float,
+ *   Rational, BigDecimal, nil, anything responding to #to_int).
+ * @raise [ArgumentError] if rb_int is negative or exceeds 256 bits.
+ */
 uint256_t rb_to_uint256(VALUE rb_int)
 {
     /* L-1: reject non-Integer before reaching rb_integer_pack, which itself
@@ -316,6 +323,10 @@ void fsqr_internal(uint256_t *r, const uint256_t *a)
  * fadd_internal — modular addition.
  *
  * Computes a + b, then branchlessly subtracts P if the result >= P.
+ *
+ * Precondition: a, b < P (canonical).  Pre-reduction is the wrapper's
+ * responsibility — see rb_fadd.  The Jacobian path (jacobian.c) only feeds
+ * canonical intermediates produced by other internals.
  */
 void fadd_internal(uint256_t *r, const uint256_t *a, const uint256_t *b)
 {
@@ -343,6 +354,8 @@ void fadd_internal(uint256_t *r, const uint256_t *a, const uint256_t *b)
  * fsub_internal — modular subtraction.
  *
  * Computes a - b; if the result underflows, adds P back — branchlessly.
+ *
+ * Precondition: a, b < P (canonical) — see fadd_internal.
  */
 void fsub_internal(uint256_t *r, const uint256_t *a, const uint256_t *b)
 {
@@ -366,6 +379,8 @@ void fsub_internal(uint256_t *r, const uint256_t *a, const uint256_t *b)
  * fneg_internal — modular negation.
  *
  * Returns P - a for non-zero a, and 0 for a == 0 — branchlessly.
+ *
+ * Precondition: a < P (canonical) — see fadd_internal.
  */
 void fneg_internal(uint256_t *r, const uint256_t *a)
 {
