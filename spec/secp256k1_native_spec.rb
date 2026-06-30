@@ -520,6 +520,30 @@ RSpec.describe 'Secp256k1Native' do
     end
   end
 
+  # L-1 boundary contract: every public Secp256k1Native wrapper rejects
+  # non-Integer inputs with TypeError. The 256-bit wrappers share the guard
+  # at rb_to_uint256; rb_fred and rb_scalar_mod carry local guards because
+  # they don't flow through rb_to_uint256 (rb_fred packs 8 limbs;
+  # rb_scalar_mod dispatches Ruby `%` first). This shared block catches any
+  # future wrapper added without a guard.
+  describe 'L-1 boundary contract: every public wrapper rejects non-Integer' do
+    # method => arity
+    WRAPPERS_BY_ARITY = {
+      fred: 1, fmul: 2, fsqr: 1, fadd: 2, fsub: 2, fneg: 1, finv: 1, fsqrt: 1,
+      scalar_mod: 1, scalar_mul: 2, scalar_inv: 1, scalar_add: 2
+    }.freeze
+
+    WRAPPERS_BY_ARITY.each do |method, arity|
+      it "##{method} raises TypeError for non-Integer input" do
+        [1.5, '1', nil].each do |bad|
+          args = Array.new(arity, bad)
+          expect { n.send(method, *args) }.to raise_error(TypeError, /Integer/),
+            "expected Secp256k1Native.#{method}(#{args.inspect}) to raise TypeError"
+        end
+      end
+    end
+  end
+
   describe 'cross-validation: 100 random pairs vs Ruby reference' do
     it 'produces identical results for all field operations' do
       failures = []

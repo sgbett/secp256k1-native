@@ -69,6 +69,13 @@ After #22, the Ruby-facing wrappers enforce — not merely document — the Inte
 
 The C `_internal` functions retain the documented `a, b < P` / `< N` preconditions and are called directly from `jacobian.c` (which only feeds canonical intermediates) and from the wrappers post-reduction.
 
+#### Pure-Ruby fallback divergences
+
+Two intentional divergences exist between the pure-Ruby module functions (used when the C extension is not loaded) and the native wrappers:
+
+- **Low-level field/scalar methods do not type-check.** `Secp256k1.fmul(1.5, 2)` and similar will compute on the Float value rather than raising `TypeError`. The user-facing `Point#mul` / `#mul_vt` reject non-Integer scalars at the Ruby boundary on both backends; the low-level pure-Ruby methods are documented as expecting `Integer` and do not enforce it. Users who need strict typing on the low-level surface should ensure the C extension is loaded.
+- **`fsub` / `fneg` accept negative inputs in pure-Ruby**, returning the canonical non-negative residue (Ruby `%` semantics). The C wrappers reject negatives via `rb_to_uint256`. Backend parity holds for all non-negative inputs; the dfuzz harness only feeds non-negative inputs so the differential never observes this case.
+
 `scalar_inv_internal` iterates over bits of the public constant N-2 via Fermat's little theorem. The branch on each bit is over public data; the per-iteration `scalar_mul_internal` operates on the secret base and is branchless.
 
 ### Montgomery ladder

@@ -140,8 +140,14 @@ module Secp256k1
   # Modular subtraction in the field.
   #
   # Canonicalises both operands so the result matches the C wrapper for any
-  # 256-bit input — load-bearing for the dfuzz differential, where pure-Ruby
-  # serves as the oracle.
+  # *non-negative* 256-bit input — load-bearing for the dfuzz differential,
+  # where pure-Ruby serves as the oracle. The dfuzz harness only feeds
+  # non-negative inputs (xorshift output, plus structured P-band vectors),
+  # so the differential never observes the negative case.
+  #
+  # Note: pure-Ruby accepts negative inputs (Ruby `%` canonicalises them);
+  # the C wrapper rejects negatives via `rb_to_uint256`. Backend parity
+  # holds for all >= 0 inputs; intentional divergence on negatives.
   def fsub(a, b)
     a %= P
     b %= P
@@ -151,7 +157,7 @@ module Secp256k1
   # Modular negation in the field.
   #
   # Canonicalises the operand so the result matches the C wrapper for any
-  # 256-bit input — see {#fsub}.
+  # non-negative 256-bit input — see {#fsub} for the negative-input note.
   def fneg(a)
     a %= P
     a.zero? ? 0 : P - a
@@ -447,14 +453,22 @@ module Secp256k1
 
     # @param x [Integer, nil] x-coordinate (nil for infinity)
     # @param y [Integer, nil] y-coordinate (nil for infinity)
-    # @raise [ArgumentError] if y is not nil and not in [0, P)
+    # @raise [ArgumentError] if x and y are not both nil and not both
+    #   Integers in [0, P)
     def initialize(x, y)
-      # I-3 mitigation: reject out-of-range y at the constructor so
-      # downstream paths (e.g. `Point#negate`) can rely on the y-coordinate
-      # being canonical. x is left permissive — `on_curve?` validates the
-      # full pair when needed.
-      unless y.nil? || (y.is_a?(Integer) && y >= 0 && y < P)
-        raise ArgumentError, 'y must be nil or an Integer in [0, P)'
+      # I-3 mitigation, hardened: only two valid shapes are accepted —
+      # the point at infinity (nil, nil), or a finite point with both
+      # coordinates canonical in [0, P). Catches Point.new(1, P-of-range),
+      # Point.new(-1, 5), Point.new(nil, 5), and similar half-states at
+      # construction so no downstream path (negate, to_octet_string,
+      # on_curve?) has to second-guess the invariant.
+      if x.nil? && y.nil?
+        # point at infinity — both coordinates absent
+      elsif x.is_a?(Integer) && y.is_a?(Integer) && x >= 0 && x < P && y >= 0 && y < P
+        # finite point with canonical coordinates
+      else
+        raise ArgumentError,
+              'Point requires (nil, nil) for infinity or two Integers in [0, P)'
       end
 
       @x = x

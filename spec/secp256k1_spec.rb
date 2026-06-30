@@ -193,8 +193,8 @@ RSpec.describe Secp256k1 do
       end
     end
 
-    describe '.new (I-3 mitigation: y-range guard)' do
-      it 'accepts valid x, y' do
+    describe '.new (I-3 mitigation: full-pair canonical guard)' do
+      it 'accepts a finite point with canonical coordinates' do
         expect(described_class.new(1, 2).y).to eq(2)
       end
 
@@ -203,20 +203,33 @@ RSpec.describe Secp256k1 do
       end
 
       # I-3: a non-canonical y stored in @y leaks through Point#negate
-      # (which calls fneg(y)) returning a non-canonical result. Closing
-      # at the constructor.
+      # (which calls fneg(y)) returning a non-canonical result. The full-
+      # pair guard also catches out-of-range x and nil/non-nil half-states
+      # so downstream paths (to_octet_string, on_curve?) can rely on the
+      # invariant that only (nil, nil) or two canonical Integers reach @x, @y.
       it 'raises ArgumentError for y >= P' do
-        expect { described_class.new(1, s::P) }.to raise_error(ArgumentError, /y must be/)
-        expect { described_class.new(1, s::P + 1) }.to raise_error(ArgumentError, /y must be/)
+        expect { described_class.new(1, s::P) }.to raise_error(ArgumentError, /Integers in \[0, P\)/)
+        expect { described_class.new(1, s::P + 1) }.to raise_error(ArgumentError, /Integers in \[0, P\)/)
       end
 
-      it 'raises ArgumentError for negative y' do
-        expect { described_class.new(1, -1) }.to raise_error(ArgumentError, /y must be/)
+      it 'raises ArgumentError for x >= P' do
+        expect { described_class.new(s::P, 2) }.to raise_error(ArgumentError, /Integers in \[0, P\)/)
       end
 
-      it 'raises ArgumentError for non-Integer y' do
-        expect { described_class.new(1, 1.5) }.to raise_error(ArgumentError, /y must be/)
-        expect { described_class.new(1, '2') }.to raise_error(ArgumentError, /y must be/)
+      it 'raises ArgumentError for negative x or y' do
+        expect { described_class.new(1, -1) }.to raise_error(ArgumentError, /Integers in \[0, P\)/)
+        expect { described_class.new(-1, 2) }.to raise_error(ArgumentError, /Integers in \[0, P\)/)
+      end
+
+      it 'raises ArgumentError for non-Integer x or y' do
+        expect { described_class.new(1, 1.5) }.to raise_error(ArgumentError, /Integers in \[0, P\)/)
+        expect { described_class.new(1, '2') }.to raise_error(ArgumentError, /Integers in \[0, P\)/)
+        expect { described_class.new(1.5, 2) }.to raise_error(ArgumentError, /Integers in \[0, P\)/)
+      end
+
+      it 'raises ArgumentError for half-nil states (only one of x, y is nil)' do
+        expect { described_class.new(nil, 5) }.to raise_error(ArgumentError, /Integers in \[0, P\)/)
+        expect { described_class.new(5, nil) }.to raise_error(ArgumentError, /Integers in \[0, P\)/)
       end
     end
 
