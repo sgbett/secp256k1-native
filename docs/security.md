@@ -60,7 +60,7 @@ The scalar operations `scalar_mul_internal`, `scalar_reduce`, and `scalar_add_in
 
 After #22, the Ruby-facing wrappers enforce — not merely document — the Integer-in-`[0, P)` / `[0, N)` contract for every operation:
 
-- All 16 native wrappers reject non-Integer inputs at `rb_to_uint256` with `TypeError` (L-1). One guard covers the whole module.
+- All 16 native wrappers reject non-Integer inputs with `TypeError` (L-1). The 256-bit wrappers share one guard at `rb_to_uint256`; `rb_fred` packs 8 limbs directly (for 512-bit intermediates) and carries its own `RB_INTEGER_TYPE_P` guard.
 - `rb_fadd` / `rb_fsub` / `rb_fneg` pre-reduce operands via `fred_internal` so the `_internal` functions' `a, b < P` precondition is always met (L-3, I-3).
 - `rb_scalar_add` pre-reduces both operands mod N (M-1).
 - `rb_scalar_mod` accepts any-width Integer (positive or negative) via Ruby `%` (L-4).

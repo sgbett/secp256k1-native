@@ -479,6 +479,14 @@ int fsqrt_internal(uint256_t *r, const uint256_t *a)
 static VALUE rb_fred(VALUE self, VALUE x)
 {
     (void)self;
+    /* L-1: reject non-Integer before rb_integer_pack, which would silently
+     * coerce Float / Rational / objects responding to #to_int.  rb_fred packs
+     * 8 limbs (vs 4 in rb_to_uint256), so it does not flow through that
+     * helper — guard locally to honour the same boundary contract. */
+    if (!RB_INTEGER_TYPE_P(x)) {
+        rb_raise(rb_eTypeError, "expected Integer");
+    }
+
     /* fred is used for reducing wide intermediates.  Pack into 8 limbs. */
     uint64_t limbs[8];
     memset(limbs, 0, sizeof(limbs));

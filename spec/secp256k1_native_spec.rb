@@ -81,6 +81,13 @@ RSpec.describe 'Secp256k1Native' do
     it 'raises ArgumentError for negative input' do
       expect { n.fred(-1) }.to raise_error(ArgumentError)
     end
+
+    # L-1 also applies to fred — it packs 8 limbs directly (not via
+    # rb_to_uint256) so it needs its own guard.
+    it 'raises TypeError for non-Integer input [L-1]' do
+      expect { n.fred(1.5) }.to raise_error(TypeError, /Integer/)
+      expect { n.fred(Rational(3, 2)) }.to raise_error(TypeError, /Integer/)
+    end
   end
 
   describe '#fmul' do
