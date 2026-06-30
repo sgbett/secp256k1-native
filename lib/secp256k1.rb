@@ -577,10 +577,8 @@ module Secp256k1
               'Set SECP256K1_ALLOW_PURE_RUBY_CT=1 or call Secp256k1.allow_pure_ruby_ct! to override.'
       end
 
-      return self.class.infinity if scalar.zero? || infinity?
-
-      scalar %= N
-      return self.class.infinity if scalar.zero?
+      scalar = normalise_scalar(scalar)
+      return self.class.infinity if scalar.nil?
 
       jp = Secp256k1.scalar_multiply_ct(scalar, @x, @y)
       affine = Secp256k1.jp_to_affine(jp)
@@ -601,10 +599,8 @@ module Secp256k1
     # @param scalar [Integer] the public scalar multiplier
     # @return [Point] the resulting point
     def mul_vt(scalar)
-      return self.class.infinity if scalar.zero? || infinity?
-
-      scalar %= N
-      return self.class.infinity if scalar.zero?
+      scalar = normalise_scalar(scalar)
+      return self.class.infinity if scalar.nil?
 
       jp = Secp256k1.scalar_multiply_wnaf(scalar, @x, @y)
       affine = Secp256k1.jp_to_affine(jp)
@@ -612,6 +608,28 @@ module Secp256k1
 
       self.class.new(affine[0], affine[1])
     end
+
+    private
+
+    # Validate and canonicalise a scalar for multiplication (L-2).
+    #
+    # @param scalar [Integer] the scalar multiplier
+    # @return [Integer, nil] the scalar reduced mod N, or nil if the
+    #   product would be infinity (scalar is zero mod N, or self is the
+    #   point at infinity)
+    # @raise [ArgumentError] if scalar is not an Integer
+    def normalise_scalar(scalar)
+      raise ArgumentError, 'scalar must be an Integer' unless scalar.is_a?(Integer)
+
+      return nil if infinity?
+
+      scalar %= N
+      return nil if scalar.zero?
+
+      scalar
+    end
+
+    public
 
     # Point addition: self + other.
     #

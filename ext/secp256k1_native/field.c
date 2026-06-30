@@ -26,6 +26,15 @@
 
 uint256_t rb_to_uint256(VALUE rb_int)
 {
+    /* L-1: reject non-Integer before reaching rb_integer_pack, which itself
+     * calls rb_to_int and would silently coerce Float / Rational / objects
+     * responding to #to_int.  This check is the single load-bearing guard
+     * for ALL 16 wrappers' Integer contract — it must come FIRST, before
+     * rb_integer_pack mutates the input. */
+    if (!RB_INTEGER_TYPE_P(rb_int)) {
+        rb_raise(rb_eTypeError, "expected Integer");
+    }
+
     uint256_t n;
     memset(&n, 0, sizeof(n));
     int result = rb_integer_pack(rb_int, n.d, 4, sizeof(uint64_t), 0, U256_PACK_FLAGS);
