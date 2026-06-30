@@ -11,7 +11,7 @@
 | **CVSS v3.1** | `AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N` (5.9) — confidentiality-only; attack complexity High (statistical timing recovery). The score is *consumer-dependent*: this gem ships no network surface of its own. |
 | **CWE** | CWE-208 (Observable Timing Discrepancy); CWE-1255 (compiler removal of a security-relevant code construct) |
 | **Affected versions** | Builds containing the branchless `uint256_select` (introduced with the 0.17.0 `jp_add_internal` |t|=875 fix) **when compiled by a C compiler that reconstructs the select into a branch.** Confirmed on GCC 15.2.0 at `-O2` (the shipped optimisation level). The lower bound across GCC versions has not been bisected; clang and older GCC were not observed to branchify. |
-| **Patched in** | Unreleased (this fix) — value barrier on all constant-time select masks. |
+| **Patched in** | `0.18.0` — value barrier on all constant-time select masks. |
 | **Found by** | Bare-metal dudect verification (issue #25). |
 
 ## Summary
