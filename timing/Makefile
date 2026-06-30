@@ -8,7 +8,10 @@
 #   make clean        # remove build artifacts
 
 CC       ?= cc
-CFLAGS   := -O2 -Wall -std=c99
+# rb_mSecp256k1Native is a tentative definition in two TUs (ruby_stubs.c and
+# secp256k1_native.c); GCC 10+ defaults to -fno-common, so -fcommon is required
+# to merge them — matches security/Makefile.
+CFLAGS   := -O2 -Wall -std=c99 -fcommon
 LDFLAGS  := -lm
 
 # Extension source directory (relative to timing/)

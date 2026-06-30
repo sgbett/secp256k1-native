@@ -228,7 +228,7 @@ static void scalar_reduce_limbs(uint256_t *r, uint64_t product[8])
     uint256_t reduced;
     uint64_t borrow = uint256_sub(&reduced, r, &CURVE_N);   /* borrow==0 <=> r >= N */
     uint64_t keep_reduced = topcarry | (1 ^ borrow);
-    uint64_t mask = -(uint64_t)(keep_reduced != 0);
+    uint64_t mask = ct_mask_u64(keep_reduced);
     for (i = 0; i < 4; i++) {
         r->d[i] = (reduced.d[i] & mask) | (r->d[i] & ~mask);
     }
@@ -310,7 +310,7 @@ void scalar_add_internal(uint256_t *r, const uint256_t *a, const uint256_t *b)
      * If overflow == 0 and borrow == 0: sum >= N, want reduced.
      * If overflow == 0 and borrow == 1: sum < N, want sum. */
     uint64_t keep_original = (~overflow) & borrow;
-    uint64_t mask = -(uint64_t)(keep_original != 0);
+    uint64_t mask = ct_mask_u64(keep_original);
     int i;
     for (i = 0; i < 4; i++) {
         r->d[i] = (sum.d[i] & mask) | (reduced.d[i] & ~mask);

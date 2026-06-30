@@ -104,37 +104,51 @@ For production-grade side-channel resistance, use the native C extension. The pu
 
 ### Empirical timing verification
 
-The C extension's constant-time claims are empirically tested using a dudect-based timing harness (`rake timing:verify`). The approach follows Reparaz, Balasch, and Verbauwhede (2017): for each function under test, two classes of input are constructed that exercise different sides of a branchless conditional. Timing measurements are collected for both classes, and Welch's t-test determines whether the distributions are distinguishable. A |t| value below 4.5 indicates no detectable timing leakage.
+The C extension's constant-time claims are empirically tested at two levels, which answer different questions:
 
-**Field arithmetic — verified constant-time:**
+- **Deterministic (ctgrind / valgrind, run in CI).** Secret inputs are poisoned and Memcheck tracks data flow to any conditional jump/move or memory address. This is independent of hardware and noise, so it is trustworthy anywhere — it is the *primary* constant-time evidence. It answers: *does any secret reach a branch?*
+- **Statistical (dudect, run on bare metal).** Following Reparaz, Balasch, and Verbauwhede (2017): for each function, two input classes exercise different sides of a branchless conditional, timings are collected, and Welch's t-test asks whether the distributions are distinguishable (|t| < 4.5 ⇒ no detectable leak). This is only trustworthy on a quiet, frequency-pinned physical machine — see the [bare-metal runbook](timing-verification-runbook.md) and issue #25. It answers: *is the **compiled** timing actually flat?* — something no source inspection can establish.
 
-| Function | |t| range | Measurements | Result |
-|---|---|---|---|
-| `fred_internal` | 0.5–4.0 | 1,500,000 | PASS |
-| `fsub_internal` | 0.1–1.0 | 1,500,000 | PASS |
-| `fneg_internal` | 0.1–1.3 | 1,500,000 | PASS |
-| `fadd_internal` | 0.1–3.4 | 1,500,000 | PASS |
+Both are necessary, because **a source-level branchless implementation is not a compiled-level guarantee.** The compiler sits between them, and it can reintroduce a branch the source took pains to avoid.
 
-**Scalar arithmetic — verified constant-time (#21):**
+#### The GCC 15 reconstruction finding (issue #25)
 
-| Function | |t| | Measurements | Result |
-|---|---|---|---|
-| `scalar_mul_internal` | 1.0 | 1,000,000 | PASS |
-| `scalar_reduce` | 0.7 | 1,000,000 | PASS |
-| `scalar_inv_internal` | 0.2 | 1,000 | PASS |
+The bare-metal dudect pass for v1 (AMD Ryzen 9 9950X, GCC 15.2.0, `-O2`) measured a **stable, reproducible** leak in `scalar_multiply_ct_internal` — the Montgomery ladder, on the secret scalar — at **|t| ≈ 21** (random vs fixed scalar, ~560 ns separation, consistent across every run). ctgrind localised it to a secret-dependent conditional jump in `uint256_select`, and the disassembly confirmed the mechanism: **GCC 15.2 at `-O2` (the shipped optimisation level) recognises the branchless `(a & ~mask) | (b & mask)` select idiom, reconstructs the original boolean flag, and emits `je`/`jne`** to out-of-line copy blocks. The compiler had silently undone the branchless property the 0.17.0 |t|=875 fix relied on — a textbook "compiler defeats constant-time C" regression, invisible to source review and to the deterministic check on the *previous* toolchain.
 
-After the #21 fix, `scalar_reduce_limbs` is fully branchless. The previous I-11 finding (secret-dependent branches on `h == 0` and `carry3` in the residual fold) is closed; ctgrind reports `0 errors` on the scalar layer. The dudect tests above empirically corroborate this on the dev hardware used to verify the fix.
+The fix (see [security advisory GHSA-draft-ct-value-barrier](advisories/0001-compiler-reconstructed-ct-branch.md)) introduces a value barrier — `ct_value_barrier_u64()`, an empty `volatile` asm that makes a value opaque to the optimiser (the libsecp256k1/BoringSSL technique) — and routes **every** all-0s/all-1s select mask through a single `ct_mask_u64()` helper. Only `uint256_select` actively branchified under GCC 15.2/`-O2`; the field, scalar, and `cswap` masks did not, but are hardened identically as defence-in-depth against a future compiler reconstructing them.
 
-**Point operations — verified constant-time:**
+#### Bare-metal results (post-fix)
 
-| Function | |t| | Measurements | Result |
-|---|---|---|---|
-| `scalar_multiply_ct_internal` | 1.0 | 10,000 | PASS |
-| `jp_add_internal` (isolation) | 7.5 | 1,000,000 | marginal |
+Measured on the issue-#25 reference machine: **AMD Ryzen 9 9950X (Zen 5), microcode 0xb404023, Ubuntu 26.04 / Linux 7.0.0-14, GCC 15.2.0** — `systemd-detect-virt = none` (true bare metal), turbo/boost off, `performance` governor with min=max, SMT off, harness pinned with `taskset -c` under `chrt -f` real-time scheduling. Each figure is aggregated over **20 runs**.
 
-`scalar_multiply_ct_internal` passes dudect verification, confirming that the full Montgomery ladder — including `cswap`, `jp_add_internal`, and `jp_double_internal` — executes in constant time with respect to the scalar value. An earlier version failed dramatically (|t| = 875) due to early-return branches in `jp_add_internal` on infinity checks. The fix replaced all input-dependent branches with mask-based `uint256_select`, making `jp_add_internal` fully branchless.
+| Function | mean \|t\| | max \|t\| | runs over 4.5 | Measurements/run | Result |
+|---|---|---|---|---|---|
+| `scalar_multiply_ct_internal` | 0.68 | 1.57 | 0 / 20 | 10,000 | **PASS** |
+| `scalar_mul_internal` | 0.93 | 2.19 | 0 / 20 | 1,000,000 | PASS |
+| `scalar_reduce` | 1.06 | 2.44 | 0 / 20 | 1,000,000 | PASS |
+| `scalar_inv_internal` | 0.49 | 1.15 | 0 / 20 | 1,000 | PASS |
+| `fadd_internal` | 0.58 | 1.44 | 0 / 20 | 1,500,000 | PASS |
+| `fsub_internal` | 0.57 | 1.81 | 0 / 20 | 1,500,000 | PASS |
+| `fneg_internal` | 0.72 | 2.09 | 0 / 20 | 1,500,000 | PASS |
+| `fred_internal` | 2.28 | 6.11 | 2 / 20 | 1,500,000 | marginal |
+| `jp_add_internal` (isolation) | 3.31 | 7.64 | 7 / 20 | 1,000,000 | marginal |
 
-The `jp_add_internal` isolation test shows a marginal |t| of 7.5 when comparing points with Z=1 (affine embedding) against points with non-trivial Z coordinates. This reflects microarchitectural timing variation in field multiplication operands (multiplying by 1 vs a large value), not any branch in the function itself. Within the Montgomery ladder, both accumulators acquire non-trivial Z coordinates after the first iteration, and scalar bits do not correlate with Z values — hence `scalar_multiply_ct_internal` passes cleanly.
+`scalar_multiply_ct_internal` — the headline secret-scalar operation — is now flat (0/20 runs over threshold, was stably |t| ≈ 21). The deterministic ctgrind check is **clean (exit 0)** across the whole extension: with every secret poisoned, nothing reaches a branch.
+
+After the #21 fix `scalar_reduce_limbs` is fully branchless; the previous I-11 finding (secret-dependent branches on `h == 0` and `carry3` in the residual fold) is closed, corroborated above and by ctgrind reporting `0 errors` on the scalar layer.
+
+#### Marginal field/point measurements — operand-value artefacts, not branches
+
+`fred_internal` and `jp_add_internal` show a non-zero central |t| (means 2.3 and 3.3) with occasional single-run excursions to ~6–8. These are **operand-value microarchitectural artefacts, not data-dependent branches** — the deterministic ctgrind check confirms no secret reaches a control-flow decision in either, so they are not the GCC-reconstruction class above. Two distinct causes, both benign:
+
+- **`jp_add_internal` (the long-documented ≈7.5 artefact):** comparing points with `Z = 1` (affine embedding) against points with non-trivial `Z` exercises field multiplications whose *operand values* differ (multiply-by-1 vs multiply-by-large), and the Zen-class multiplier's latency has a small value dependence. Within the Montgomery ladder both accumulators acquire non-trivial `Z` after the first iteration and scalar bits do not correlate with `Z`, so `scalar_multiply_ct_internal` itself stays flat.
+- **`fred`/`fsub`-style field tests:** the dudect input classes are deliberately *operand-magnitude-asymmetric* (e.g. one class subtracts a tiny value from a full 256-bit one, the other swaps the roles) to stress the branchless correction path. The residual |t| reflects that synthetic magnitude asymmetry in the adder/borrow path, not a secret-dependent code path. Real field elements are always full-width residues mod *P*, so the tiny-operand class does not occur in practice.
+
+A non-isolated desktop (live GUI session, no `isolcpus` core reservation) also raises the noise floor — individual runs spike where an isolated core would not; the aggregate sign of these |t| values is unstable run-to-run, the signature of noise rather than a leak. These are catalogued here (and in [risks.md](risks.md#what-works-against-it)) as known measurement artefacts rather than claimed absent.
+
+#### Bare-metal dudect is a pre-tag release gate
+
+The GCC 15 finding makes the policy explicit: **"passes ctgrind in CI" is not sufficient on its own to ship a release.** A compiler upgrade — or a change in flags, target, or even an inlining decision — can silently reconstruct a branch from branchless source, and only the statistical, bare-metal dudect pass observes the *compiled* timing. The deterministic check would have caught this one (it did), but it runs against whatever toolchain CI happens to use; the timing that ships is the timing on the user's compiler. Therefore the bare-metal dudect run in the [runbook](timing-verification-runbook.md) is a **required gate before tagging a release**, re-run whenever the pinned/known-good compiler version changes — not a one-off for issue #25.
 
 ### Variable-time paths
 

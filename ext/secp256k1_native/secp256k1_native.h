@@ -107,11 +107,41 @@ void register_scalar_methods(VALUE mod);
  * Branchless selection helper
  * ----------------------------------------------------------------------- */
 
+/* Opaque value barrier: returns x unchanged, but the empty volatile asm forces
+ * the compiler to treat the result as an unknown register value. Without it,
+ * GCC (observed on 15.2, -O2) recognises the all-0s/all-1s select masks used
+ * throughout this extension, reconstructs the original boolean, and emits a
+ * secret-dependent conditional jump — defeating the branchless intent. This is
+ * the same technique libsecp256k1/BoringSSL use to keep constant-time selects
+ * flat. On compilers without GNU asm (e.g. MSVC, where this extension is a
+ * no-op anyway) it degrades to an identity function. */
+static inline uint64_t ct_value_barrier_u64(uint64_t x) {
+#if defined(__GNUC__) || defined(__clang__)
+    __asm__ volatile("" : "+r"(x));
+#endif
+    return x;
+}
+
+/* Build a constant-time select mask: all-ones (0xFFFF...FF) when flag != 0,
+ * all-zeros otherwise. The value barrier is applied here so that EVERY mask in
+ * this extension is opaque to the optimiser before it feeds a branchless
+ * mask-select — both polarities are used in this codebase:
+ *   (a & mask) | (b & ~mask)   — selects `a` when mask is all-ones
+ *   (a & ~mask) | (b & mask)   — selects `b` when mask is all-ones (e.g. uint256_select)
+ * Either form is equivalent for an all-0/all-1 mask; the comment lists both so
+ * an auditor reading a call site knows the polarity is intentional, not a bug.
+ * All constant-time masks MUST be constructed through this helper — a raw
+ * `-(uint64_t)(cond)` is a latent branch waiting for the compiler to
+ * reconstruct it. */
+static inline uint64_t ct_mask_u64(uint64_t flag) {
+    return ct_value_barrier_u64(-(uint64_t)(flag != 0));
+}
+
 /* Branchless conditional select: if flag is non-zero, *r = *b; else *r = *a.
  * Constant-time: no branch on flag. */
 static inline void uint256_select(uint256_t *r, const uint256_t *a,
                                    const uint256_t *b, uint64_t flag) {
-    uint64_t mask = -(uint64_t)(flag != 0);
+    uint64_t mask = ct_mask_u64(flag);
     r->d[0] = (a->d[0] & ~mask) | (b->d[0] & mask);
     r->d[1] = (a->d[1] & ~mask) | (b->d[1] & mask);
     r->d[2] = (a->d[2] & ~mask) | (b->d[2] & mask);

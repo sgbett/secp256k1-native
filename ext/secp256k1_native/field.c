@@ -254,7 +254,7 @@ void fred_internal(uint256_t *r, const uint256_t *hi, const uint256_t *lo)
     uint64_t borrow = uint256_sub(&reduced, r, &FIELD_P);
 
     /* mask = all 1s if borrow == 1 (keep r), all 0s if borrow == 0 (keep reduced). */
-    uint64_t mask = -(uint64_t)(borrow != 0);
+    uint64_t mask = ct_mask_u64(borrow);
     for (i = 0; i < 4; i++) {
         r->d[i] = (r->d[i] & mask) | (reduced.d[i] & ~mask);
     }
@@ -342,7 +342,7 @@ void fadd_internal(uint256_t *r, const uint256_t *a, const uint256_t *b)
      * If overflow == 0 and borrow == 1 : sum < P, want sum.
      * Combined: keep sum iff (overflow == 0 && borrow == 1). */
     uint64_t keep_original = (~overflow) & borrow;
-    uint64_t mask = -(uint64_t)(keep_original != 0); /* all 1s iff sum < P */
+    uint64_t mask = ct_mask_u64(keep_original); /* all 1s iff sum < P */
     int i;
     for (i = 0; i < 4; i++) {
         r->d[i] = (sum.d[i] & mask) | (reduced.d[i] & ~mask);
@@ -367,7 +367,7 @@ void fsub_internal(uint256_t *r, const uint256_t *a, const uint256_t *b)
     (void)carry; /* carry is 0 here since diff + P < 2^256 when borrow == 1 */
 
     /* mask: all 1s if borrow == 1 (use corrected), all 0s otherwise (use diff). */
-    uint64_t mask = -(uint64_t)(borrow != 0);
+    uint64_t mask = ct_mask_u64(borrow);
     int i;
     for (i = 0; i < 4; i++) {
         r->d[i] = (corrected.d[i] & mask) | (diff.d[i] & ~mask);
@@ -388,7 +388,7 @@ void fneg_internal(uint256_t *r, const uint256_t *a)
 
     /* If a == 0 the result should be 0, not P. */
     uint64_t is_zero = uint256_is_zero(a);
-    uint64_t mask = -(uint64_t)(is_zero != 0); /* all 1s if a is zero */
+    uint64_t mask = ct_mask_u64(is_zero); /* all 1s if a is zero */
     int i;
     for (i = 0; i < 4; i++) {
         /* zero mask: 0 where is_zero, negated.d[i] where not */
