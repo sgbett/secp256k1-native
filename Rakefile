@@ -76,6 +76,10 @@ namespace :docs do
         errors << "#{path}: invalid frontmatter YAML — #{e.message}"
         next
       end
+      unless fm.is_a?(Hash)
+        errors << "#{path}: frontmatter must be a YAML mapping (got #{fm.class})"
+        next
+      end
       REQUIRED_FRONTMATTER_KEYS.each do |k|
         errors << "#{path}: missing required frontmatter key: #{k}" unless fm[k]
       end
