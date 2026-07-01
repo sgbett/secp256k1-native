@@ -32,14 +32,14 @@ namespace :docs do
     inject_reference_frontmatter(output_dir)
   end
 
-  desc 'Build the Jekyll docs site'
-  task :build do
-    _jekyll 'jekyll build'
+  desc 'Build the Jekyll docs site (runs docs:generate first)'
+  task build: :generate do
+    _jekyll 'jekyll', 'build'
   end
 
   desc 'Serve the Jekyll docs locally with livereload'
   task :serve do
-    _jekyll 'jekyll serve --livereload'
+    _jekyll 'jekyll', 'serve', '--livereload'
   end
 
   REQUIRED_FRONTMATTER_KEYS = %w[title].freeze
@@ -102,14 +102,15 @@ namespace :docs do
     end
 
     baseurl = YAML.safe_load(File.read(File.expand_path('docs/_config.yml', __dir__)))['baseurl'].to_s
-    swap = baseurl.empty? ? '' : %(--swap-urls "^#{Regexp.escape(baseurl)}:")
-    _jekyll "htmlproofer _site --disable-external --enforce-https #{swap} " \
-            '--ignore-empty-alt --ignore-missing-alt --allow-missing-href'
+    args = %w[htmlproofer _site --disable-external --enforce-https]
+    args += ['--swap-urls', "^#{Regexp.escape(baseurl)}:"] unless baseurl.empty?
+    args += %w[--ignore-empty-alt --ignore-missing-alt --allow-missing-href]
+    _jekyll(*args)
   end
 end
 
 desc 'Generate, build, lint, and proofread the docs site'
-task docs: %w[docs:generate docs:build docs:lint docs:proofread]
+task docs: %w[docs:build docs:lint docs:proofread]
 
 def inject_reference_frontmatter(output_dir)
   require 'csv'
@@ -129,8 +130,8 @@ def inject_reference_frontmatter(output_dir)
   end
 end
 
-def _jekyll(*args)
+def _jekyll(*cmd)
   Bundler.with_unbundled_env do
-    Dir.chdir('docs') { sh "bundle exec #{args.join(' ')}" }
+    Dir.chdir('docs') { sh 'bundle', 'exec', *cmd }
   end
 end
