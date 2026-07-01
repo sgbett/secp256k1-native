@@ -7,8 +7,12 @@ on:
 
   pull_request:
 
+permissions: {}
+
 jobs:
   build:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     name: Ruby ${{ matrix.ruby }}
     strategy:
