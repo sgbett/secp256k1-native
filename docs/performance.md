@@ -1,3 +1,8 @@
+---
+title: Performance
+nav_order: 6
+---
+
 # Performance
 
 ## Summary

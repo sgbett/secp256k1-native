@@ -1,3 +1,9 @@
+---
+title: Running the checks
+parent: Security Review (v1.0)
+nav_order: 1
+---
+
 # Running the security checks (macOS / Docker)
 
 The pre-v1.0 review ([`security-review-v1.md`](security-review-v1.md)) left four

@@ -1,0 +1,46 @@
+// Migrated from MkDocs Material slate scheme; primary: deep purple (#673AB7),
+// accent: amber (#FFC107). Dark variant — loaded when the reader toggles dark
+// mode, via the site-local asset override at
+// `docs/assets/css/just-the-docs-dark.scss` (just-the-docs 0.12 hardcodes the
+// dark toggle to `assets/css/just-the-docs-dark.scss` and has no
+// `color_scheme_dark` config key). Self-contained — depends only on
+// just-the-docs base variables.
+//
+// Palette notes:
+//   * Deep purple 400 (#7E57C2) is used in place of 500/700 for links and headings
+//     because lighter shades read more clearly against a dark (grey-dk-300) ground.
+//   * Amber 400 (#FFCA28) is reserved as the accent; amber is naturally high-contrast
+//     on dark and so does not need to be lifted further.
+//   * Background follows just-the-docs `dark.scss` convention ($grey-dk-300).
+
+$color-scheme: dark;
+
+// Brand colours (named for clarity; not part of just-the-docs API)
+$deep-purple-400: #7e57c2;
+$deep-purple-500: #673ab7;
+$deep-purple-700: #5e35b1;
+$amber-400: #ffca28;
+$amber-500: #ffc107;
+$amber-700: #ffb300;
+
+// just-the-docs variable overrides
+$body-background-color: $grey-dk-300;
+$body-heading-color: $grey-lt-000;
+$body-text-color: $grey-lt-300;
+$link-color: $deep-purple-400;
+$nav-child-link-color: $grey-lt-000;
+$sidebar-color: $grey-dk-300;
+$base-button-color: $grey-dk-250;
+$btn-primary-color: $deep-purple-500;
+$code-background-color: #0d1117; // github-dark bg
+$code-linenumber-color: #e6edf3; // github-dark line numbers
+$feedback-color: darken($sidebar-color, 3%);
+$table-background-color: $grey-dk-250;
+$search-background-color: $grey-dk-250;
+$search-result-preview-color: $grey-lt-300;
+$border-color: $grey-dk-200;
+
+// Amber accent reserved for future use (callouts, code anchor markers, etc.).
+$accent-color: $amber-400 !default;
+
+@import "./vendor/accessible-pygments/github-dark";

@@ -1,3 +1,9 @@
+---
+title: Advisory 0001 — CT branch
+parent: Security Review (v1.0)
+nav_order: 3
+---
+
 # Security Advisory 0001 — Compiler-reconstructed timing side-channel in `Point#mul`
 
 > Draft for a GitHub Security Advisory (GHSA). Fill the GHSA form from the

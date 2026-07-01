@@ -1,3 +1,8 @@
+---
+title: Design Rationale
+nav_order: 7
+---
+
 # Design rationale
 
 Why this gem exists, what it does and doesn't do, and the trade-offs behind its architecture.

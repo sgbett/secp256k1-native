@@ -21,3 +21,6 @@ docs/reference/
 /security/dfuzz_harness
 /security/ctgrind_harness
 /security/asan_sweep
+
+# docs/Gemfile.lock is committed (deployable site, not a library)
+!docs/Gemfile.lock

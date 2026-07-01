@@ -1,0 +1,26 @@
+title: secp256k1-native
+description: Pure native C secp256k1 implementation for Ruby
+baseurl: /secp256k1-native
+url: https://sgbett.github.io
+
+theme: just-the-docs
+color_scheme: secp256k1-native
+
+search_enabled: true
+permalink: pretty
+
+plugins:
+  - jekyll-redirect-from
+  - jekyll-relative-links
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - README.md
+  - vendor/
