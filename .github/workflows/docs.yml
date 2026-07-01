@@ -32,8 +32,6 @@ jobs:
         with:
           ruby-version: '3.4'
           bundler-cache: true
-      - name: Generate YARD reference
-        run: bundle exec rake docs:generate
       # Different Gemfile (docs/Gemfile) — do not consolidate with above.
       - uses: ruby/setup-ruby@0dafeac902942906541bc140009cdbf32665b601  # v1.315.0
         with:
