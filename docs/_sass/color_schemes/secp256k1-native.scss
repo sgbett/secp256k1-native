@@ -1,8 +1,10 @@
 // Migrated from MkDocs Material; primary: deep purple (#673AB7), accent: amber (#FFC107).
-// Light variant. The dark variant lives in `secp256k1-native-dark.scss` and is wired
-// via `color_scheme_dark` in `_config.yml` — just-the-docs ships separate light/dark
-// scheme files (a single `@import "./color_schemes/{{ include.color_scheme }}"` per
-// build), not a single file with a `prefers-color-scheme` block.
+// Light variant. Loaded via `color_scheme: secp256k1-native` in `_config.yml`.
+// just-the-docs 0.12 ships separate light/dark scheme files (a single
+// `@import "./color_schemes/{{ include.color_scheme }}"` per build) and has no
+// `color_scheme_dark` config key — the dark variant lives in
+// `secp256k1-native-dark.scss` and is wired via the site-local asset override
+// at `docs/assets/css/just-the-docs-dark.scss`.
 //
 // Material palette references:
 //   deep purple  500 #673AB7   400 #7E57C2   700 #5E35B1

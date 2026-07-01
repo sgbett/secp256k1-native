@@ -1,6 +1,10 @@
 // Migrated from MkDocs Material slate scheme; primary: deep purple (#673AB7),
-// accent: amber (#FFC107). Dark variant — wired via `color_scheme_dark` in
-// `_config.yml`. Self-contained — depends only on just-the-docs base variables.
+// accent: amber (#FFC107). Dark variant — loaded when the reader toggles dark
+// mode, via the site-local asset override at
+// `docs/assets/css/just-the-docs-dark.scss` (just-the-docs 0.12 hardcodes the
+// dark toggle to `assets/css/just-the-docs-dark.scss` and has no
+// `color_scheme_dark` config key). Self-contained — depends only on
+// just-the-docs base variables.
 //
 // Palette notes:
 //   * Deep purple 400 (#7E57C2) is used in place of 500/700 for links and headings

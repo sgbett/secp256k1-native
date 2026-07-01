@@ -70,7 +70,12 @@ namespace :docs do
         errors << "#{path}: malformed frontmatter (no closing ---)"
         next
       end
-      fm = YAML.safe_load(fm_match[1]) || {}
+      begin
+        fm = YAML.safe_load(fm_match[1]) || {}
+      rescue Psych::SyntaxError => e
+        errors << "#{path}: invalid frontmatter YAML — #{e.message}"
+        next
+      end
       REQUIRED_FRONTMATTER_KEYS.each do |k|
         errors << "#{path}: missing required frontmatter key: #{k}" unless fm[k]
       end
