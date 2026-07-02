@@ -26,11 +26,13 @@ namespace :bench do
   task scalar: :compile do
     require 'benchmark'
     require 'securerandom'
-    $LOAD_PATH.unshift(File.expand_path('lib', __dir__))
+    lib_path = File.expand_path('lib', __dir__)
+    $LOAD_PATH.unshift(lib_path) unless $LOAD_PATH.include?(lib_path)
     require 'secp256k1'
     require 'secp256k1_native'
 
     point_iters = Integer(ENV.fetch('BENCH_ITERS', '100'))
+    abort 'BENCH_ITERS must be a positive integer' unless point_iters.positive?
     scalar_iters = point_iters * 100  # scalar ops are ~1us; scale for reliable measurement
     trials = 5
 
