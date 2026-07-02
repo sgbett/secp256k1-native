@@ -74,16 +74,21 @@ This gem intentionally does not pursue these optimisations. The goal is a self-c
 
 ## Reproducing these measurements
 
-The benchmark figures were measured on Apple Silicon (M4) with Ruby 3.4, median of 5 trials with warm-up. Your results will vary by hardware, Ruby version, and workload.
+The benchmark figures in the summary table above were produced by the checked-in `bench:scalar` rake task, on Apple Silicon (M4) with Ruby 3.4, median of 5 trials with warm-up. Your results will vary by hardware, Ruby version, and workload.
 
-```ruby
-require 'benchmark'
-require 'secp256k1'
+```
+$ bundle exec rake bench:scalar
+# bench:scalar (point_iters=100, scalar_iters=10000, trials=5)
+Point#mul (constant-time): 3934.0 ops/s
+Point#mul_vt (variable-time): 3621.0 ops/s
+Secp256k1Native.scalar_mul: ... ops/s
+Secp256k1Native.scalar_inv: ... ops/s
+```
 
-g = Secp256k1::Point.generator
-k = SecureRandom.random_number(Secp256k1::N - 1) + 1
+The `Point#mul` and `Point#mul_vt` rates correspond to the "Constant-time mul" and "Variable-time mul" columns in the summary table. The two scalar-layer rows are additional coverage of the raw C boundary.
 
-n = 100
-time = Benchmark.realtime { n.times { g.mul(k) } }
-puts "#{(n / time).round(1)} mul ops/sec (constant-time)"
+Tune iteration counts with `BENCH_ITERS` (default `100` for point ops; scalar ops run at `100 × BENCH_ITERS` internally because they complete in ~1 μs each):
+
+```
+$ BENCH_ITERS=1000 bundle exec rake bench:scalar   # tighter estimates
 ```
