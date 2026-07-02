@@ -1,0 +1,63 @@
+name: CT assembly invariant
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'ext/**'
+      - 'security/check-ct-assembly.rb'
+      - '.github/workflows/ct-assembly-invariant.yml'
+  pull_request:
+    paths:
+      - 'ext/**'
+      - 'security/check-ct-assembly.rb'
+      - '.github/workflows/ct-assembly-invariant.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    name: CT assembly invariant (ladder + jp_add_internal)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@0dafeac902942906541bc140009cdbf32665b601  # v1.315.0
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      - name: Install binutils (objdump)
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends binutils
+
+      # Compile jacobian.c at the shipping optimisation level (-O2) with
+      # debug info so `objdump -dl` can attribute lines. The rest of the
+      # flag set mirrors ext/secp256k1_native/extconf.rb: -Wall -std=c99,
+      # plus -fcommon (needed by GCC 10+ against the extension's linkage
+      # style, matches security/Makefile).
+      #
+      # `-fno-stack-protector` is added strictly for this CI check — it removes
+      # GCC's `sub %fs:0x28,%rax; jne <__stack_chk_fail>` epilogue artefact from
+      # canary-protected functions. That `jne` is data-independent (canary vs
+      # canary), not a CT concern, but it inflates the conditional-jump count
+      # in the `jp_add_internal` invariant. Stripping the canary here lets the
+      # check inspect exactly the CT-relevant control flow. Shipping continues
+      # to be built with `-fstack-protector-strong` per Ruby's mkmf defaults.
+      - name: Compile jacobian.c at -O2 -g (no stack protector — CT-only view)
+        run: |
+          RUBY_HDR_DIR=$(ruby -e 'puts RbConfig::CONFIG["rubyhdrdir"]')
+          RUBY_ARCH_HDR_DIR=$(ruby -e 'puts RbConfig::CONFIG["rubyarchhdrdir"]')
+          gcc -O2 -g -Wall -std=c99 -fcommon -fno-stack-protector \
+              -I ext/secp256k1_native \
+              -I "$RUBY_HDR_DIR" \
+              -I "$RUBY_ARCH_HDR_DIR" \
+              -c ext/secp256k1_native/jacobian.c \
+              -o /tmp/jacobian.o
+
+      - name: Assert ladder loop body + jp_add_internal branchlessness
+        run: ruby security/check-ct-assembly.rb /tmp/jacobian.o

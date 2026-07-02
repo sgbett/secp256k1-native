@@ -155,6 +155,8 @@ A non-isolated desktop (live GUI session, no `isolcpus` core reservation) also r
 
 The GCC 15 finding makes the policy explicit: **"passes ctgrind in CI" is not sufficient on its own to ship a release.** A compiler upgrade — or a change in flags, target, or even an inlining decision — can silently reconstruct a branch from branchless source, and only the statistical, bare-metal dudect pass observes the *compiled* timing. The deterministic check would have caught this one (it did), but it runs against whatever toolchain CI happens to use; the timing that ships is the timing on the user's compiler. Therefore the bare-metal dudect run in the [runbook](timing-verification-runbook.md) is a **required gate before tagging a release**, re-run whenever the pinned/known-good compiler version changes — not a one-off for issue #25.
 
+See [Releasing](RELEASING.md) for the literal pre-tag checklist that makes this an explicit gate rather than narrative prose.
+
 ### Variable-time paths
 
 The wNAF scalar multiplication loop (`scalar_multiply_wnaf`, exposed as `Point#mul_vt`) branches on scalar bits and uses a precomputed table with data-dependent lookups. It is explicitly variable-time. This is acceptable for public scalars (signature verification) but must never be used with secret scalars.
