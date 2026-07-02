@@ -21,7 +21,7 @@ Gem::Specification.new do |spec|
 
   spec.extensions = ['ext/secp256k1_native/extconf.rb']
 
-  spec.files = Dir.glob('lib/**/*') +
+  spec.files = Dir.glob('lib/**/*.rb') +
                Dir.glob('ext/**/*.{c,h,rb}') +
                ['secp256k1-native.gemspec', 'LICENSE', 'README.md', 'CHANGELOG.md']
 
