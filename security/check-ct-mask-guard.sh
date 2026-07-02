@@ -13,11 +13,18 @@
 #   Code review alone cannot enforce that discipline. This script does.
 #
 # What it does:
-#   Scans `ext/secp256k1_native/` for the mask-construction shape `-(uint64_t)(`.
-#   The pattern is legitimate only when its result is fed directly into
+#   Scans `ext/secp256k1_native/` for the mask-construction shape
+#   `-(uint{32,64}_t)(...)`. Whitespace variants are matched
+#   (`- (uint64_t)(...)`, `-(uint64_t) (...)`, `-( uint64_t )(...)` — all
+#   compile identically) so a stylistic reformat cannot silently evade the
+#   guard. The pattern is legitimate only when its result is fed directly into
 #   `ct_value_barrier_u64(...)` — i.e. inside `ct_mask_u64` itself. Every other
 #   occurrence in code is a latent CT regression. Prose in docstrings is
 #   filtered by skipping lines whose first non-whitespace character is `*`.
+#
+#   The legitimate-site filter is anchored to a word boundary on
+#   `ct_value_barrier_u64` so a lookalike wrapper (`my_ct_value_barrier_u64`,
+#   `xct_value_barrier_u64`) cannot piggyback on the exemption.
 #
 # Exit codes:
 #   0 — no violations (only the legitimate barrier-wrapped site matched, if any).
@@ -40,15 +47,23 @@ fi
 # Grep every occurrence of the mask-construction shape, then filter out:
 #   1. Comment lines (docstring prose) — lines whose first non-whitespace char
 #      after the "file:line:" prefix is `*`.
-#   2. Lines where the pattern is passed directly into `ct_value_barrier_u64(` —
-#      the one legitimate site (inside `ct_mask_u64`). This is a semantic filter,
-#      not a line-range filter, so it survives reordering of secp256k1_native.h.
+#   2. Lines where the pattern is passed directly into `ct_value_barrier_u64(`
+#      with a `uint64_t` width — the one legitimate site (inside `ct_mask_u64`).
+#      Word-boundary anchored on the LHS so `my_ct_value_barrier_u64(` etc.
+#      cannot bypass. This is a semantic filter (not a line-range filter) so it
+#      survives reordering of secp256k1_native.h.
+#
+# The search pattern tolerates whitespace between the leading `-`, the
+# `(uintNN_t)` cast, and its argument `(`. Both `uint32_t` and `uint64_t` are
+# caught — narrower widths compose identically as latent branches.
 #
 # `|| true` because grep exits 1 when no lines match, which is expected on a
 # clean tree; `set -e` would otherwise abort here.
-violations=$(grep -rnE -- '-\(uint64_t\)\(' "$SEARCH_DIR" \
+violations=$(grep -rnE -- \
+        '-[[:space:]]*\([[:space:]]*uint(32|64)_t[[:space:]]*\)[[:space:]]*\(' \
+        "$SEARCH_DIR" \
     | grep -vE '^[^:]+:[0-9]+:[[:space:]]*\*' \
-    | grep -vF 'ct_value_barrier_u64(-(uint64_t)(' \
+    | grep -vE '(^|[^A-Za-z0-9_])ct_value_barrier_u64\([[:space:]]*-[[:space:]]*\([[:space:]]*uint64_t[[:space:]]*\)[[:space:]]*\(' \
     || true)
 
 if [ -n "$violations" ]; then
@@ -57,5 +72,5 @@ if [ -n "$violations" ]; then
     exit 1
 fi
 
-echo "OK: no raw -(uint64_t)( mask construction outside ct_value_barrier_u64."
+echo "OK: no raw -(uint{32,64}_t)( mask construction outside ct_value_barrier_u64."
 exit 0

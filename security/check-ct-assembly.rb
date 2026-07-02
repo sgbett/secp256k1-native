@@ -28,17 +28,31 @@
 #
 # Scope of the check
 # ------------------
-# Symbol: scalar_multiply_ct_internal.
-# Region: the trailing backward-branching loop (its target is the loop top,
-#   its own address is the bottom).
-# Failure conditions inside that region:
-#   1. more than one conditional-jump mnemonic (j<cond>), OR
-#   2. any conditional-move mnemonic (cmov<cond>).
+# Two symbols are inspected:
 #
-# The check is deliberately scoped to the ladder loop body because that is
-# the primitive whose *structural* branchlessness the CT contract depends on.
-# Adjacent guards (#34 grep, dudect gate) cover the callee `jp_add_internal`
-# where H-2's `uint256_select` calls compile.
+#   1. scalar_multiply_ct_internal — the Montgomery ladder driver.
+#      Region: the trailing backward-branching loop (its target is the loop
+#      top, its own address is the bottom).
+#      Failure conditions inside that region:
+#        (a) more than one conditional-jump mnemonic (j<cond>), OR
+#        (b) any conditional-move mnemonic (cmov<cond>).
+#      The single legitimate conditional jump is the loop counter's back-edge.
+#
+#   2. jp_add_internal — the branchless Jacobian point addition. In source
+#      it is deliberately mask-based end-to-end (see docstring in jacobian.c).
+#      H-2 was exactly the shape where GCC 15.2 reconstructed a data-dependent
+#      branch inside a `uint256_select` call that lands in this function, so
+#      inspecting the standalone symbol closes the coverage gap where the
+#      ladder-loop check would miss non-inlined regressions here.
+#      Failure conditions inside the whole body:
+#        (a) any conditional-jump mnemonic (j<cond>), OR
+#        (b) any conditional-move mnemonic (cmov<cond>).
+#      Unconditional jmp / call / ret are all permitted.
+#
+# If the compiler inlines jp_add_internal into the ladder, its standalone
+# symbol is absent from objdump output; the checker emits a NOTE and treats
+# that as PASS — the inlined body sits inside the ladder loop and is covered
+# by the loop-body check instead.
 #
 # Platform scoping
 # ----------------
@@ -60,7 +74,8 @@
 require 'open3'
 require 'shellwords'
 
-SYMBOL = 'scalar_multiply_ct_internal'
+LADDER_SYMBOL = 'scalar_multiply_ct_internal'
+JP_ADD_SYMBOL = 'jp_add_internal'
 
 # Conditional-jump mnemonic pattern. On x86-64 AT&T syntax the family is
 # `j<cond>` for cond in {e, ne, z, nz, b, be, nb, a, ae, na, nae, l, le, g,
@@ -202,8 +217,31 @@ def report_pass(top_addr, bottom_addr, loop_jumps)
   lo = format('%#x', top_addr)
   hi = format('%#x', bottom_addr)
   addr, mnem, = loop_jumps.first
-  puts "check-ct-assembly: PASS -- #{SYMBOL} loop body [#{lo}..#{hi}] " \
+  puts "check-ct-assembly: PASS -- #{LADDER_SYMBOL} loop body [#{lo}..#{hi}] " \
        "contains exactly 1 conditional jump (#{format('%#x', addr)}: #{mnem}) and 0 cmov."
+end
+
+def report_pass_jp_add(range)
+  lo, hi = range
+  puts "check-ct-assembly: PASS -- #{JP_ADD_SYMBOL} body " \
+       "[#{format('%#x', lo)}..#{format('%#x', hi)}] fully branchless " \
+       '(0 conditional jumps, 0 cmov).'
+end
+
+def report_fail_jp_add(body, cond_jumps, cmovs)
+  warn "check-ct-assembly: FAIL -- #{JP_ADD_SYMBOL} contains a data-dependent branch."
+  cond_jumps.each do |addr, mnem, target|
+    warn "  #{format('%#x', addr)}: #{mnem} -> #{format('%#x', target)}"
+  end
+  cmovs.each { |addr, mnem| warn "  #{format('%#x', addr)}: #{mnem}" }
+  warn ''
+  warn "#{JP_ADD_SYMBOL} is required to be end-to-end mask-based (see docstring in"
+  warn 'ext/secp256k1_native/jacobian.c). This is the exact shape of the H-2 regression'
+  warn '(GHSA-vp2j-gqfm-r3cf): GCC 15.2 reconstructed a data-dependent branch inside'
+  warn 'a `uint256_select` call that landed here. Confirm `ct_value_barrier_u64` still'
+  warn 'applies inside `ct_mask_u64` and inspect the disassembly below:'
+  warn ''
+  body.each { |l| warn "  #{l.chomp}" }
 end
 
 def report_fail(problems, body_lines, top_addr, bottom_addr)
@@ -218,6 +256,29 @@ def report_fail(problems, body_lines, top_addr, bottom_addr)
   warn 'new helper in the ladder path constructs a mask outside `ct_mask_u64`.'
 end
 
+# Inspect jp_add_internal. Returns true on pass (or graceful "symbol not
+# present" NOTE — likely inlined), false on fail.
+def check_jp_add_internal(disasm)
+  body = symbol_body(disasm, JP_ADD_SYMBOL)
+  if body.nil?
+    puts "check-ct-assembly: NOTE -- `#{JP_ADD_SYMBOL}` symbol absent from " \
+         'objdump output; likely inlined into the ladder. Its body is covered ' \
+         "by the #{LADDER_SYMBOL} loop-body check."
+    return true
+  end
+
+  cond_jumps = collect_cond_jumps(body)
+  cmovs = collect_cmovs(body)
+
+  if cond_jumps.empty? && cmovs.empty?
+    report_pass_jp_add(symbol_address_range(body))
+    return true
+  end
+
+  report_fail_jp_add(body, cond_jumps, cmovs)
+  false
+end
+
 def check_host_arch!
   host = RbConfig::CONFIG['host_cpu'] || RUBY_PLATFORM
   return if host.include?('x86_64') || host.include?('amd64')
@@ -225,20 +286,15 @@ def check_host_arch!
   skip("host CPU `#{host}` is not x86_64; this check targets GCC x86_64 codegen")
 end
 
-def main(argv)
-  input = argv[0] || '/tmp/jacobian.o'
-  die("input object file `#{input}` not found") unless File.file?(input)
-  check_host_arch!
-
-  disasm = objdump_disassembly(input)
-  body = symbol_body(disasm, SYMBOL)
-  die("symbol `#{SYMBOL}` not found in `#{input}` (was it compiled from jacobian.c?)") if body.nil?
+def check_ladder(disasm)
+  body = symbol_body(disasm, LADDER_SYMBOL)
+  die("symbol `#{LADDER_SYMBOL}` not found -- was #{ENV['ARGV0'] || 'the object file'} compiled from jacobian.c?") if body.nil?
 
   cond_jumps = collect_cond_jumps(body)
   cmovs = collect_cmovs(body)
   range = find_loop_range(body, cond_jumps)
   if range.nil?
-    die("could not locate ladder loop in `#{SYMBOL}` -- no backward conditional jump found. " \
+    die("could not locate ladder loop in `#{LADDER_SYMBOL}` -- no backward conditional jump found. " \
         'Codegen may have changed shape (unrolled?). Inspect objdump -dl output manually.')
   end
 
@@ -249,11 +305,22 @@ def main(argv)
 
   if problems.empty?
     report_pass(top_addr, bottom_addr, loop_jumps)
-    exit 0
+    return true
   end
 
   report_fail(problems, body, top_addr, bottom_addr)
-  exit 1
+  false
+end
+
+def main(argv)
+  input = argv[0] || '/tmp/jacobian.o'
+  die("input object file `#{input}` not found") unless File.file?(input)
+  check_host_arch!
+
+  disasm = objdump_disassembly(input)
+  ladder_ok = check_ladder(disasm)
+  jp_add_ok = check_jp_add_internal(disasm)
+  exit(ladder_ok && jp_add_ok ? 0 : 1)
 end
 
 main(ARGV) if $PROGRAM_NAME == __FILE__
