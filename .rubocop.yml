@@ -12,3 +12,17 @@ Style/StringLiterals:
 
 Style/FrozenStringLiteralComment:
   Enabled: true
+
+# security/ contains standalone analysis harnesses (dfuzz, ctgrind, asan,
+# check-ct-assembly, ...). They are single-file scripts, not library code;
+# the Metrics/* cops fight their natural shape (a `main`, a handful of
+# helpers). Filenames use hyphens for consistency with the sibling shell
+# scripts (check-ct-mask-guard.sh). Keep the style-affecting cops on, relax
+# the size-metric and filename ones.
+Metrics:
+  Exclude:
+    - 'security/**/*.rb'
+
+Naming/FileName:
+  Exclude:
+    - 'security/**/*.rb'

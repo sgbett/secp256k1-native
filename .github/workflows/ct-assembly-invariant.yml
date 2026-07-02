@@ -1,0 +1,55 @@
+name: CT assembly invariant
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'ext/**'
+      - 'security/check-ct-assembly.rb'
+      - '.github/workflows/ct-assembly-invariant.yml'
+  pull_request:
+    paths:
+      - 'ext/**'
+      - 'security/check-ct-assembly.rb'
+      - '.github/workflows/ct-assembly-invariant.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    name: Ladder loop body invariant
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@0dafeac902942906541bc140009cdbf32665b601  # v1.315.0
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      - name: Install binutils (objdump)
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends binutils
+
+      # Compile jacobian.c at the shipping optimisation level (-O2) with
+      # debug info so `objdump -dl` can attribute lines. The rest of the
+      # flag set mirrors ext/secp256k1_native/extconf.rb: -Wall -std=c99,
+      # plus -fcommon (needed by GCC 10+ against the extension's linkage
+      # style, matches security/Makefile).
+      - name: Compile jacobian.c at -O2 -g
+        run: |
+          RUBY_HDR_DIR=$(ruby -e 'puts RbConfig::CONFIG["rubyhdrdir"]')
+          RUBY_ARCH_HDR_DIR=$(ruby -e 'puts RbConfig::CONFIG["rubyarchhdrdir"]')
+          gcc -O2 -g -Wall -std=c99 -fcommon \
+              -I ext/secp256k1_native \
+              -I "$RUBY_HDR_DIR" \
+              -I "$RUBY_ARCH_HDR_DIR" \
+              -c ext/secp256k1_native/jacobian.c \
+              -o /tmp/jacobian.o
+
+      - name: Assert ladder loop body invariant
+        run: ruby security/check-ct-assembly.rb /tmp/jacobian.o
