@@ -21,6 +21,43 @@ namespace :timing do
   end
 end
 
+namespace :bench do
+  desc 'Benchmark scalar-layer operations (BENCH_ITERS to tune; parseable "Name: N ops/s" output)'
+  task scalar: :compile do
+    require 'benchmark'
+    require 'securerandom'
+    lib_path = File.expand_path('lib', __dir__)
+    $LOAD_PATH.unshift(lib_path) unless $LOAD_PATH.include?(lib_path)
+    require 'secp256k1'
+    require 'secp256k1_native'
+
+    point_iters = Integer(ENV.fetch('BENCH_ITERS', '100'))
+    abort 'BENCH_ITERS must be a positive integer' unless point_iters.positive?
+    scalar_iters = point_iters * 100  # scalar ops are ~1us; scale for reliable measurement
+    trials = 5
+
+    g = Secp256k1::Point.generator
+    a = SecureRandom.random_number(Secp256k1::N - 1) + 1
+    b = SecureRandom.random_number(Secp256k1::N - 1) + 1
+    scalars = Array.new(point_iters) { SecureRandom.random_number(Secp256k1::N - 1) + 1 }
+
+    benchmarks = [
+      ['Point#mul (constant-time)',    -> { scalars.each { |k| g.mul(k) } },                       point_iters],
+      ['Point#mul_vt (variable-time)', -> { scalars.each { |k| g.mul_vt(k) } },                    point_iters],
+      ['Secp256k1Native.scalar_mul',   -> { scalar_iters.times { Secp256k1Native.scalar_mul(a, b) } }, scalar_iters],
+      ['Secp256k1Native.scalar_inv',   -> { scalar_iters.times { Secp256k1Native.scalar_inv(a) } },    scalar_iters]
+    ]
+
+    puts "# bench:scalar (point_iters=#{point_iters}, scalar_iters=#{scalar_iters}, trials=#{trials})"
+    benchmarks.each do |name, block, n|
+      block.call  # warm-up
+      times = Array.new(trials) { Benchmark.realtime(&block) }
+      median = times.sort[trials / 2]
+      puts "#{name}: #{(n / median).round(1)} ops/s"
+    end
+  end
+end
+
 namespace :docs do
   desc 'Generate YARD markdown into docs/reference/'
   task :generate do
