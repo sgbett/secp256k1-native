@@ -114,7 +114,11 @@ end
 # objdump, LLVM objdump (macOS default), or objdump failure.
 def objdump_disassembly(path)
   objdump = ENV.fetch('OBJDUMP', 'objdump')
-  version_out, status = Open3.capture2e(objdump, '--version')
+  begin
+    version_out, status = Open3.capture2e(objdump, '--version')
+  rescue Errno::ENOENT
+    die("`#{objdump}` not found on PATH -- install binutils or set OBJDUMP to a GNU objdump.")
+  end
   die("`#{objdump}` failed to report a version -- is it on PATH?") unless status.success?
   unless version_out.match?(/GNU objdump|Binutils/)
     skip("this checker targets GNU objdump; found `#{objdump}` reporting: #{version_out.lines.first&.strip}")

@@ -30,7 +30,8 @@ jobs:
         uses: ruby/setup-ruby@0dafeac902942906541bc140009cdbf32665b601  # v1.315.0
         with:
           ruby-version: '3.4'
-          bundler-cache: true
+          # No bundler-cache: this job runs a standalone stdlib-only Ruby
+          # script and never invokes `bundle exec`.
 
       - name: Install binutils (objdump)
         run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends binutils
