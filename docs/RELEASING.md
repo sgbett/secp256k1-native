@@ -5,7 +5,7 @@ nav_order: 9
 
 # Releasing
 
-Pre-tag checklist. This is a literal gate — each box has to be ticked *before* the tag is pushed. The H-2 leak shipped precisely because a narrative-only "bare-metal dudect is required" prose gate lapsed between 0.17.0 and v1; codifying it here so a future release cannot silently skip it.
+This is the pre-tag checklist — a literal gate where each box has to be ticked *before* the tag is pushed. The H-2 leak shipped precisely because a narrative-only "bare-metal dudect is required" prose gate lapsed between 0.17.0 and v1, and this document codifies that gate so a future release cannot silently skip it.
 
 ## Pre-tag checklist
 

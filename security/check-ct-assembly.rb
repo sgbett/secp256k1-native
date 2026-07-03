@@ -72,6 +72,7 @@
 #   2  usage / environment error (missing objdump, missing input file, ...)
 
 require 'open3'
+require 'rbconfig'
 require 'shellwords'
 
 LADDER_SYMBOL = 'scalar_multiply_ct_internal'
@@ -286,9 +287,9 @@ def check_host_arch!
   skip("host CPU `#{host}` is not x86_64; this check targets GCC x86_64 codegen")
 end
 
-def check_ladder(disasm)
+def check_ladder(disasm, input_path)
   body = symbol_body(disasm, LADDER_SYMBOL)
-  die("symbol `#{LADDER_SYMBOL}` not found -- was #{ENV['ARGV0'] || 'the object file'} compiled from jacobian.c?") if body.nil?
+  die("symbol `#{LADDER_SYMBOL}` not found in `#{input_path}` -- was it compiled from jacobian.c?") if body.nil?
 
   cond_jumps = collect_cond_jumps(body)
   cmovs = collect_cmovs(body)
@@ -318,7 +319,7 @@ def main(argv)
   check_host_arch!
 
   disasm = objdump_disassembly(input)
-  ladder_ok = check_ladder(disasm)
+  ladder_ok = check_ladder(disasm, input)
   jp_add_ok = check_jp_add_internal(disasm)
   exit(ladder_ok && jp_add_ok ? 0 : 1)
 end

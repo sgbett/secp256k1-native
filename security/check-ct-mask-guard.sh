@@ -28,7 +28,7 @@
 #
 # Exit codes:
 #   0 — no violations (only the legitimate barrier-wrapped site matched, if any).
-#   1 — one or more raw `-(uint64_t)(...)` mask constructions found.
+#   1 — one or more raw `-(uint{32,64}_t)(...)` mask constructions found.
 #
 # Usage:
 #   bash security/check-ct-mask-guard.sh
@@ -67,7 +67,7 @@ violations=$(grep -rnE -- \
     || true)
 
 if [ -n "$violations" ]; then
-    echo "ERROR: raw -(uint64_t)( mask construction found — use ct_mask_u64() instead:" >&2
+    echo "ERROR: raw -(uint{32,64}_t)( mask construction found — use ct_mask_u64() instead:" >&2
     echo "$violations" >&2
     exit 1
 fi
