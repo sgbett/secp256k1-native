@@ -24,5 +24,5 @@ jobs:
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - name: Guard against raw -(uint{32,64}_t)( mask construction
+      - name: 'Guard: no raw -(uint32_t) / -(uint64_t) mask construction outside ct_value_barrier_u64'
         run: bash security/check-ct-mask-guard.sh

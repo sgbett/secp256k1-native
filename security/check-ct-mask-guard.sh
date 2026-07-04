@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-ct-mask-guard.sh — CI guard against raw `-(uint64_t)(cond)` mask construction.
+# check-ct-mask-guard.sh — CI guard against raw `-(uint{32,64}_t)(cond)` mask construction.
 #
 # Background:
 #   PR #32 introduced `ct_mask_u64()` to wrap a value barrier around every
