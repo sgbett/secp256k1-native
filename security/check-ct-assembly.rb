@@ -293,14 +293,20 @@ end
 
 def check_ladder(disasm, input_path)
   body = symbol_body(disasm, LADDER_SYMBOL)
-  die("symbol `#{LADDER_SYMBOL}` not found in `#{input_path}` -- was it compiled from jacobian.c?") if body.nil?
+  if body.nil?
+    warn "check-ct-assembly: FAIL -- symbol `#{LADDER_SYMBOL}` not found in `#{input_path}` -- " \
+         'was it compiled from jacobian.c?'
+    return false
+  end
 
   cond_jumps = collect_cond_jumps(body)
   cmovs = collect_cmovs(body)
   range = find_loop_range(body, cond_jumps)
   if range.nil?
-    die("could not locate ladder loop in `#{LADDER_SYMBOL}` -- no backward conditional jump found. " \
-        'Codegen may have changed shape (unrolled?). Inspect objdump -dl output manually.')
+    warn "check-ct-assembly: FAIL -- could not locate ladder loop in `#{LADDER_SYMBOL}` -- " \
+         'no backward conditional jump found. Codegen may have changed shape (unrolled?). ' \
+         'Inspect objdump -dl output manually.'
+    return false
   end
 
   top_addr, bottom_addr = range

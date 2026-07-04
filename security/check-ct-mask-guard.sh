@@ -53,9 +53,12 @@ fi
 #      cannot bypass. This is a semantic filter (not a line-range filter) so it
 #      survives reordering of secp256k1_native.h.
 #
-# The search pattern tolerates whitespace between the leading `-`, the
-# `(uintNN_t)` cast, and its argument `(`. Both `uint32_t` and `uint64_t` are
-# caught — narrower widths compose identically as latent branches.
+# The search pattern tolerates whitespace between the leading `-` and the
+# `(uintNN_t)` cast, and does not require the cast operand to be
+# parenthesised — `-(uint64_t)cond` and `-(uint64_t)(cond)` are both
+# structurally equivalent latent-branch shapes and both must be caught.
+# Both `uint32_t` and `uint64_t` are matched — narrower widths compose
+# identically as latent branches.
 #
 # The primary recursive grep is run separately so we can distinguish its exit
 # codes precisely: 0 = matches, 1 = clean tree (fine), ≥2 = real error
@@ -64,7 +67,7 @@ fi
 # guard. The subsequent filter greps operate on captured text so cannot fail
 # from I/O, and `|| true` there is safe.
 if raw_matches=$(grep -rnE -- \
-        '-[[:space:]]*\([[:space:]]*uint(32|64)_t[[:space:]]*\)[[:space:]]*\(' \
+        '-[[:space:]]*\([[:space:]]*uint(32|64)_t[[:space:]]*\)' \
         "$SEARCH_DIR"); then
     :  # exit 0 — matches; will filter below
 else
@@ -78,7 +81,7 @@ fi
 
 violations=$(printf '%s' "$raw_matches" \
     | grep -vE '^[^:]+:[0-9]+:[[:space:]]*\*' \
-    | grep -vE '(^|[^A-Za-z0-9_])ct_value_barrier_u64\([[:space:]]*-[[:space:]]*\([[:space:]]*uint64_t[[:space:]]*\)[[:space:]]*\(' \
+    | grep -vE '(^|[^A-Za-z0-9_])ct_value_barrier_u64\([[:space:]]*-[[:space:]]*\([[:space:]]*uint64_t[[:space:]]*\)' \
     || true)
 
 if [ -n "$violations" ]; then

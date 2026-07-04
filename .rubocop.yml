@@ -28,3 +28,10 @@ Metrics:
 Naming/FileName:
   Exclude:
     - 'security/**/*.rb'
+
+# The `check_ladder` / `check_jp_add_internal` methods return true/false but
+# also emit PASS/FAIL diagnostics as their primary product — they are not
+# pure predicates. The `?` suffix would misrepresent their contract.
+Naming/PredicateMethod:
+  Exclude:
+    - 'security/**/*.rb'
