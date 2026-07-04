@@ -57,11 +57,26 @@ fi
 # `(uintNN_t)` cast, and its argument `(`. Both `uint32_t` and `uint64_t` are
 # caught — narrower widths compose identically as latent branches.
 #
-# `|| true` because grep exits 1 when no lines match, which is expected on a
-# clean tree; `set -e` would otherwise abort here.
-violations=$(grep -rnE -- \
+# The primary recursive grep is run separately so we can distinguish its exit
+# codes precisely: 0 = matches, 1 = clean tree (fine), ≥2 = real error
+# (unreadable file, invalid regex, ...). A blanket `|| true` on the whole
+# pipeline would mask exit-2 as "no violations" and silently defeat the
+# guard. The subsequent filter greps operate on captured text so cannot fail
+# from I/O, and `|| true` there is safe.
+if raw_matches=$(grep -rnE -- \
         '-[[:space:]]*\([[:space:]]*uint(32|64)_t[[:space:]]*\)[[:space:]]*\(' \
-        "$SEARCH_DIR" \
+        "$SEARCH_DIR"); then
+    :  # exit 0 — matches; will filter below
+else
+    grep_status=$?
+    if [ "$grep_status" -gt 1 ]; then
+        echo "ERROR: initial grep failed with status $grep_status (unreadable file / invalid regex?)" >&2
+        exit 2
+    fi
+    raw_matches=""  # exit 1 = no matches on a clean tree
+fi
+
+violations=$(printf '%s' "$raw_matches" \
     | grep -vE '^[^:]+:[0-9]+:[[:space:]]*\*' \
     | grep -vE '(^|[^A-Za-z0-9_])ct_value_barrier_u64\([[:space:]]*-[[:space:]]*\([[:space:]]*uint64_t[[:space:]]*\)[[:space:]]*\(' \
     || true)
