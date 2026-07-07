@@ -57,10 +57,14 @@ elif ! command -v objdump >/dev/null 2>&1; then
   echo "  SKIP: GNU objdump not present"
 elif ! command -v cc >/dev/null 2>&1; then
   echo "  SKIP: C compiler not present"
-elif ! make -s jacobian_ct.o 2>/dev/null; then
-  echo "  SKIP: compile of jacobian.c via security/Makefile failed (Ruby headers unavailable?)"
+elif ! command -v ruby >/dev/null 2>&1; then
+  echo "  SKIP: ruby not present (needed for the RbConfig header lookup and the checker)"
 else
-  if ruby check-ct-assembly.rb jacobian_ct.o >/dev/null 2>&1; then
+  # Let make print its own errors — swallowing them buries real compile issues
+  # (missing ruby-dev, jacobian.c break, etc.) behind a generic SKIP.
+  if ! make -s jacobian_ct.o; then
+    echo "  FAIL: compile of jacobian.c via security/Makefile failed (see error above)"; rc=1
+  elif ruby check-ct-assembly.rb jacobian_ct.o >/dev/null 2>&1; then
     echo "  PASS: ladder + jp_add_internal branchlessness invariants hold"
   else
     echo "  FAIL: CT assembly invariant violated (re-run: ruby security/check-ct-assembly.rb security/jacobian_ct.o)"; rc=1

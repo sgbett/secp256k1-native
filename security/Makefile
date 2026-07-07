@@ -59,6 +59,13 @@ asan: asan_sweep.c $(EXT_SRCS) $(STUB_SRC)
 # one if it came first on the include path. Here we want shipping-shape
 # codegen, so the real Ruby headers must be preferred.
 jacobian_ct.o: $(EXT)/jacobian.c
+	@if [ -z "$(RUBY_HDR)" ] || [ -z "$(RUBY_ARCH_HDR)" ]; then \
+		echo "ERROR: Ruby header dirs not discoverable — is ruby on PATH?" >&2 ; \
+		echo "  RUBY_HDR      = $(RUBY_HDR)" >&2 ; \
+		echo "  RUBY_ARCH_HDR = $(RUBY_ARCH_HDR)" >&2 ; \
+		echo "  Retry after \`command -v ruby && ruby -e 'puts RbConfig::CONFIG.dig(\\\"rubyhdrdir\\\")'\` prints a non-empty path." >&2 ; \
+		exit 2 ; \
+	fi
 	$(CC) -O2 -g -Wall -std=c99 -fcommon -fno-stack-protector \
 	      -I$(RUBY_HDR) -I$(RUBY_ARCH_HDR) -I$(EXT) \
 	      -c $< -o $@
