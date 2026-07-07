@@ -27,8 +27,13 @@ BASEFLAGS:= -std=c99 -fcommon $(INCLUDES)
 EXT_SRCS := $(EXT)/field.c $(EXT)/scalar.c $(EXT)/jacobian.c $(EXT)/secp256k1_native.c
 STUB_SRC := $(STUB)/ruby_stubs.c
 
-RUBY_HDR      := $(shell ruby -e 'puts RbConfig::CONFIG["rubyhdrdir"]' 2>/dev/null)
-RUBY_ARCH_HDR := $(shell ruby -e 'puts RbConfig::CONFIG["rubyarchhdrdir"]' 2>/dev/null)
+# `-rrbconfig` is defensive: MRI usually autoloads RbConfig, but alternative
+# Rubies (JRuby, TruffleRuby) or minimal MRI builds may not. Silently
+# swallowing the NameError via `2>/dev/null` would leave RUBY_HDR empty,
+# and the recipe's guard would report "header dirs not discoverable"
+# without the operator ever seeing the real cause.
+RUBY_HDR      := $(shell ruby -rrbconfig -e 'puts RbConfig::CONFIG["rubyhdrdir"]' 2>/dev/null)
+RUBY_ARCH_HDR := $(shell ruby -rrbconfig -e 'puts RbConfig::CONFIG["rubyarchhdrdir"]' 2>/dev/null)
 
 .PHONY: all check clean dfuzz ctgrind asan
 
@@ -63,7 +68,7 @@ jacobian_ct.o: $(EXT)/jacobian.c
 		echo "ERROR: Ruby header dirs not discoverable — is ruby on PATH?" >&2 ; \
 		echo "  RUBY_HDR      = $(RUBY_HDR)" >&2 ; \
 		echo "  RUBY_ARCH_HDR = $(RUBY_ARCH_HDR)" >&2 ; \
-		echo "  Retry after \`command -v ruby && ruby -e 'puts RbConfig::CONFIG.dig(\\\"rubyhdrdir\\\")'\` prints a non-empty path." >&2 ; \
+		echo "  Retry after \`command -v ruby && ruby -rrbconfig -e \"puts RbConfig::CONFIG['rubyhdrdir']\"\` prints a non-empty path." >&2 ; \
 		exit 2 ; \
 	fi
 	$(CC) -O2 -g -Wall -std=c99 -fcommon -fno-stack-protector \
