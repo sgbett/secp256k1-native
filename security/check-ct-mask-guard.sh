@@ -55,15 +55,15 @@ if [ ! -d "$SEARCH_DIR" ]; then
 fi
 
 # Grep every occurrence of the mask-construction shape, then filter out:
-#   1. Comment lines (docstring prose) — lines whose first non-whitespace char
-#      after the "file:line:" prefix is `*` (block-comment continuation) or
-#      `//` (C99 single-line comment). Both mean the rest of the line is
-#      guaranteed prose and can legitimately mention the anti-pattern.
-#
-#      `/*` is deliberately NOT stripped: `/* stub */ code_with_pattern` is a
-#      valid C construction that puts real code after a short block comment,
-#      and stripping the line as prose would let a contributor smuggle a
-#      violation past the guard by prefixing it with `/* x */`.
+#   1. Comment lines (docstring prose):
+#        (a) `*`-prefixed lines (block-comment continuation),
+#        (b) `//`-prefixed lines (C99 single-line comment),
+#        (c) whole-line `/* ... */` blocks — content is only a block comment
+#            with optional trailing whitespace. `/* stub */ code_with_pattern`
+#            (real code after the closing `*/`) is deliberately NOT stripped;
+#            a contributor cannot smuggle a violation past the guard by
+#            prefixing it with `/* x */`. This is why the regex requires
+#            `[[:space:]]*$` after the closing `*/`.
 #   2. Lines in `ext/secp256k1_native/secp256k1_native.h` where the pattern is
 #      passed directly into `ct_value_barrier_u64(...)` with a `uint64_t`
 #      width. This is the ONE legitimate site — the `ct_mask_u64` definition
@@ -103,6 +103,7 @@ fi
 
 violations=$(printf '%s' "$raw_matches" \
     | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(\*|//)' \
+    | grep -vE '^[^:]+:[0-9]+:[[:space:]]*/\*.*\*/[[:space:]]*$' \
     | grep -vE '^ext/secp256k1_native/secp256k1_native\.h:[0-9]+:.*[^A-Za-z0-9_]ct_value_barrier_u64\([[:space:]]*-[[:space:]]*\([[:space:]]*uint64_t[[:space:]]*\)' \
     || true)
 
