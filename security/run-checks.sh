@@ -55,10 +55,12 @@ if [ "$(uname -s)" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
   echo "  SKIP: only runs on Linux x86_64 (see .github/workflows/ct-assembly-invariant.yml)"
 elif ! command -v objdump >/dev/null 2>&1; then
   echo "  SKIP: GNU objdump not present"
-elif ! command -v "${CC:-cc}" >/dev/null 2>&1; then
+elif cc_bin=${CC:-cc}; cc_bin=${cc_bin%% *}; ! command -v "$cc_bin" >/dev/null 2>&1; then
   # Match the compiler the Makefile will actually invoke: $(CC) defaults to
   # `cc` but can be overridden via `CC=...` in the env (common in CI/dev).
-  echo "  SKIP: C compiler '${CC:-cc}' not present"
+  # Extract just the executable (first token) so a wrapper form like
+  # `CC="ccache gcc"` or `CC="gcc-13 -std=c99"` is honoured.
+  echo "  SKIP: C compiler '$cc_bin' not present"
 elif ! command -v ruby >/dev/null 2>&1; then
   echo "  SKIP: ruby not present (needed for the RbConfig header lookup and the checker)"
 else
