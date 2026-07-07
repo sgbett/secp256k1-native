@@ -33,8 +33,12 @@ jobs:
           # No bundler-cache: this job runs a standalone stdlib-only Ruby
           # script and never invokes `bundle exec`.
 
-      - name: Install binutils (objdump)
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends binutils
+      # binutils (objdump) is preinstalled on ubuntu-latest — only fall back
+      # to apt-get if a future image drops it. Skips `apt-get update` entirely
+      # so a broken upstream repo (e.g. packages.microsoft.com returning an
+      # unsigned InRelease, as happened 2026-07-07) can't red the CT gate.
+      - name: Ensure objdump available
+        run: command -v objdump || sudo apt-get install -y --no-install-recommends binutils
 
       # Compile jacobian.c at the shipping optimisation level (-O2) with
       # debug info so `objdump -dl` can attribute lines. The rest of the
