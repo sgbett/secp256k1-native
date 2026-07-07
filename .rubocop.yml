@@ -12,3 +12,26 @@ Style/StringLiterals:
 
 Style/FrozenStringLiteralComment:
   Enabled: true
+
+# security/ contains standalone analysis harnesses (dfuzz, ctgrind, asan,
+# check-ct-assembly, ...). They are single-file scripts, not library code;
+# the entire Metrics/* department (block/method/class length, AbcSize,
+# cyclomatic and perceived complexity, parameter lists) fights their
+# natural shape — a `main`, a handful of helpers, one or two long parser
+# regexes. Filenames use hyphens for consistency with the sibling shell
+# scripts (e.g. check-ct-mask-guard.sh), which Naming/FileName also flags.
+# All style-affecting cops (Style/*, Layout/*, Lint/*) stay on.
+Metrics:
+  Exclude:
+    - 'security/**/*.rb'
+
+Naming/FileName:
+  Exclude:
+    - 'security/**/*.rb'
+
+# The `check_ladder` / `check_jp_add_internal` methods return true/false but
+# also emit PASS/FAIL diagnostics as their primary product — they are not
+# pure predicates. The `?` suffix would misrepresent their contract.
+Naming/PredicateMethod:
+  Exclude:
+    - 'security/**/*.rb'
