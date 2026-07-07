@@ -316,9 +316,9 @@ end
 def check_jp_add_internal(disasm)
   body = symbol_body(disasm, JP_ADD_SYMBOL)
   if body.nil?
-    if ENV['ALLOW_INLINED_JP_ADD_INTERNAL']
+    if ENV['ALLOW_INLINED_JP_ADD_INTERNAL'] == '1'
       puts "check-ct-assembly: NOTE -- `#{JP_ADD_SYMBOL}` symbol absent from " \
-           'objdump output; ALLOW_INLINED_JP_ADD_INTERNAL set — treating as inlined ' \
+           'objdump output; ALLOW_INLINED_JP_ADD_INTERNAL=1 set — treating as inlined ' \
            "into the ladder body (covered by the #{LADDER_SYMBOL} loop-body check)."
       return true
     end

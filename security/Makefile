@@ -46,15 +46,21 @@ asan: asan_sweep.c $(EXT_SRCS) $(STUB_SRC)
 	$(CC) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
 	      $(BASEFLAGS) $^ -lm -o asan_sweep
 
-# CT assembly-invariant check — jacobian.c compiled standalone against the Ruby
-# headers at `-O2 -g -Wall -std=c99 -fcommon`, with `-fno-stack-protector` added
-# to strip GCC's canary `sub %fs:0x28,%rax; jne <__stack_chk_fail>` epilogue
-# artefact from the disassembly (that jne is data-independent — canary vs
-# canary — but inflates the conditional-jump count the invariant asserts).
-# `-g` is required so `objdump -dl` can attribute lines back to source.
+# CT assembly-invariant check — jacobian.c compiled standalone against the
+# **real** Ruby headers at `-O2 -g -Wall -std=c99 -fcommon`, with
+# `-fno-stack-protector` added to strip GCC's canary `sub %fs:0x28,%rax; jne
+# <__stack_chk_fail>` epilogue artefact from the disassembly (that jne is
+# data-independent — canary vs canary — but inflates the conditional-jump
+# count the invariant asserts). `-g` is required so `objdump -dl` can
+# attribute lines back to source.
+#
+# Deliberately does NOT use $(BASEFLAGS): that carries `-I$(STUB)` for the
+# dfuzz/asan/ctgrind targets, whose stub `ruby.h` would win over the real
+# one if it came first on the include path. Here we want shipping-shape
+# codegen, so the real Ruby headers must be preferred.
 jacobian_ct.o: $(EXT)/jacobian.c
-	$(CC) -O2 -g -Wall $(BASEFLAGS) -fno-stack-protector \
-	      -I$(RUBY_HDR) -I$(RUBY_ARCH_HDR) \
+	$(CC) -O2 -g -Wall -std=c99 -fcommon -fno-stack-protector \
+	      -I$(RUBY_HDR) -I$(RUBY_ARCH_HDR) -I$(EXT) \
 	      -c $< -o $@
 
 # Smoke run: build what we can, run a short pass of each.
