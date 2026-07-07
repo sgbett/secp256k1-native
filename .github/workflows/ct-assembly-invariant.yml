@@ -8,14 +8,12 @@ on:
       - 'security/Makefile'
       - 'security/check-ct-assembly.rb'
       - '.github/workflows/ct-assembly-invariant.yml'
-      - '.github/actions/ct-setup/**'
   pull_request:
     paths:
       - 'ext/**'
       - 'security/Makefile'
       - 'security/check-ct-assembly.rb'
       - '.github/workflows/ct-assembly-invariant.yml'
-      - '.github/actions/ct-setup/**'
   workflow_dispatch:
 
 permissions: {}
@@ -28,11 +26,17 @@ jobs:
       contents: read
 
     steps:
-      # Checkout + Ruby setup (SHA-pinned in .github/actions/ct-setup — one
-      # place to bump when Dependabot updates checkout or setup-ruby).
-      - uses: ./.github/actions/ct-setup
+      # Composite action was tried and reverted: `uses: ./.github/actions/*`
+      # requires the repo already checked out, so a composite cannot own its
+      # own checkout step. The pin duplication between this file and
+      # ct-source-guard.yml stays; Dependabot handles the bumps.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@0dafeac902942906541bc140009cdbf32665b601  # v1.315.0
         with:
           ruby-version: '3.4'
+          # No bundler-cache: this job runs a standalone stdlib-only Ruby
+          # script and never invokes `bundle exec`.
 
       # binutils (objdump) is preinstalled on ubuntu-latest — only fall back
       # to apt-get if a future image drops it. Skips `apt-get update` entirely
