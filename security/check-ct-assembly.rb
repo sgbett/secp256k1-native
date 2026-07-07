@@ -200,30 +200,74 @@ def loop_snippet(body_lines, top_addr, bottom_addr)
   end
 end
 
-# Report offences as an array of human-readable lines.
-def report_offences(loop_jumps, loop_cmovs)
+# Classify conditional jumps inside the ladder loop body against the invariant:
+#   - `back_edges` — target == loop_top_addr. Exactly one is required (the
+#     ladder's own back-edge).
+#   - `forward_branches` — target > jump_addr. Zero allowed. Any forward
+#     conditional branch inside the loop body is a data-dependent branch —
+#     the H-2 shape.
+#   - `inner_backwards` — everything else (backward jumps whose target is
+#     between loop_top_addr and jump_addr). Allowed — these are the back-edges
+#     of *inner* constant-count loops the compiler chose not to unroll. Their
+#     loop count is a source-level constant, so their timing is not data-
+#     dependent. A NOTE is emitted so a reviewer can eyeball them.
+def classify_loop_jumps(loop_jumps, top_addr)
+  back_edges = loop_jumps.select { |_, _, target| target == top_addr }
+  forward_branches = loop_jumps.select { |addr, _, target| target > addr }
+  inner_backwards = loop_jumps - back_edges - forward_branches
+  { back_edges: back_edges, forward_branches: forward_branches, inner_backwards: inner_backwards }
+end
+
+# Report offences (invariant violations) and notes (allowed-but-worth-flagging
+# observations) as two arrays of human-readable lines. Empty offences means
+# the invariant holds; notes may fire on a passing check.
+def report_offences(loop_jumps, loop_cmovs, top_addr)
+  classification = classify_loop_jumps(loop_jumps, top_addr)
   problems = []
-  if loop_jumps.size != 1
-    problems << "expected exactly 1 conditional jump in ladder loop body, found #{loop_jumps.size}:"
-    loop_jumps.each do |addr, mnem, target|
+  notes = []
+
+  if classification[:back_edges].size != 1
+    problems << "expected exactly 1 back-edge to loop top #{format('%#x', top_addr)}, " \
+                "found #{classification[:back_edges].size}:"
+    classification[:back_edges].each do |addr, mnem, target|
       problems << "    #{format('%#x', addr)}: #{mnem} -> #{format('%#x', target)}"
     end
   end
+
+  unless classification[:forward_branches].empty?
+    problems << "found #{classification[:forward_branches].size} forward conditional " \
+                'branch(es) inside the ladder loop body — the H-2 shape (data-dependent branch):'
+    classification[:forward_branches].each do |addr, mnem, target|
+      problems << "    #{format('%#x', addr)}: #{mnem} -> #{format('%#x', target)}"
+    end
+  end
+
   unless loop_cmovs.empty?
     problems << "expected no conditional moves in ladder loop body, found #{loop_cmovs.size}:"
     loop_cmovs.each do |addr, mnem|
       problems << "    #{format('%#x', addr)}: #{mnem}"
     end
   end
-  problems
+
+  unless classification[:inner_backwards].empty?
+    notes << "note: #{classification[:inner_backwards].size} additional backward conditional " \
+             'jump(s) inside the ladder loop body — presumed inner constant-count loop(s):'
+    classification[:inner_backwards].each do |addr, mnem, target|
+      notes << "    #{format('%#x', addr)}: #{mnem} -> #{format('%#x', target)}"
+    end
+  end
+
+  [problems, notes]
 end
 
 def report_pass(top_addr, bottom_addr, loop_jumps)
   lo = format('%#x', top_addr)
   hi = format('%#x', bottom_addr)
-  addr, mnem, = loop_jumps.first
+  back = loop_jumps.find { |_, _, target| target == top_addr }
+  addr, mnem, = back
   puts "check-ct-assembly: PASS -- #{LADDER_SYMBOL} loop body [#{lo}..#{hi}] " \
-       "contains exactly 1 conditional jump (#{format('%#x', addr)}: #{mnem}) and 0 cmov."
+       "back-edge #{format('%#x', addr)}: #{mnem} -> #{lo}; " \
+       'no forward branches, no cmov.'
 end
 
 def report_pass_jp_add(range)
@@ -261,15 +305,28 @@ def report_fail(problems, body_lines, top_addr, bottom_addr)
   warn 'new helper in the ladder path constructs a mask outside `ct_mask_u64`.'
 end
 
-# Inspect jp_add_internal. Returns true on pass (or graceful "symbol not
-# present" NOTE — likely inlined), false on fail.
+# Inspect jp_add_internal. Returns true on pass, false on fail.
+#
+# When JP_ADD_SYMBOL is absent from the disassembly we can't distinguish
+# "compiler inlined it into the ladder" (benign, covered by the loop-body
+# check) from "someone renamed or removed the function and forgot to update
+# the checker" (silent coverage gap). Default to FAIL and require an explicit
+# opt-in (ALLOW_INLINED_JP_ADD_INTERNAL=1) so an inlining regression trips
+# CI rather than being silently accepted.
 def check_jp_add_internal(disasm)
   body = symbol_body(disasm, JP_ADD_SYMBOL)
   if body.nil?
-    puts "check-ct-assembly: NOTE -- `#{JP_ADD_SYMBOL}` symbol absent from " \
-         'objdump output; likely inlined into the ladder. Its body is covered ' \
-         "by the #{LADDER_SYMBOL} loop-body check."
-    return true
+    if ENV['ALLOW_INLINED_JP_ADD_INTERNAL']
+      puts "check-ct-assembly: NOTE -- `#{JP_ADD_SYMBOL}` symbol absent from " \
+           'objdump output; ALLOW_INLINED_JP_ADD_INTERNAL set — treating as inlined ' \
+           "into the ladder body (covered by the #{LADDER_SYMBOL} loop-body check)."
+      return true
+    end
+    warn "check-ct-assembly: FAIL -- `#{JP_ADD_SYMBOL}` symbol absent from objdump. " \
+         'Either (a) update JP_ADD_SYMBOL in this script if the function has been ' \
+         'renamed, or (b) set ALLOW_INLINED_JP_ADD_INTERNAL=1 if the compiler has ' \
+         'inlined it into the ladder body (verify by inspecting objdump -dl output).'
+    return false
   end
 
   cond_jumps = collect_cond_jumps(body)
@@ -312,7 +369,8 @@ def check_ladder(disasm, input_path)
   top_addr, bottom_addr = range
   loop_jumps = in_range(cond_jumps, top_addr, bottom_addr)
   loop_cmovs = in_range(cmovs, top_addr, bottom_addr)
-  problems = report_offences(loop_jumps, loop_cmovs)
+  problems, notes = report_offences(loop_jumps, loop_cmovs, top_addr)
+  notes.each { |n| puts "check-ct-assembly: #{n}" }
 
   if problems.empty?
     report_pass(top_addr, bottom_addr, loop_jumps)

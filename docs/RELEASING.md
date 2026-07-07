@@ -9,7 +9,7 @@ This is the pre-tag checklist — a literal gate where each box has to be ticked
 
 ## Pre-tag checklist
 
-- [ ] CI all green (Ruby matrix × CodeQL × tests × docs).
+- [ ] CI all green (Ruby matrix × CodeQL × tests × docs) **on the tag SHA**. `docs.yml` and `ct-*.yml` have `paths:` filters, so a chain of PRs before tagging that didn't touch the filtered paths can leave the last workflow run at a stale SHA — before tagging, trigger a fresh run of each on `master` via Actions → workflow → *Run workflow* (uses `workflow_dispatch`) and confirm green.
 - [ ] `bundle exec rspec` green locally.
 - [ ] Differential gate (`security/run-checks.sh`) — `regression vectors diverging = 0/7`.
 - [ ] ctgrind clean (Docker on macOS, native on Linux).

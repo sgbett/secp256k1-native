@@ -5,13 +5,17 @@ on:
     branches: [master]
     paths:
       - 'ext/**'
+      - 'security/Makefile'
       - 'security/check-ct-assembly.rb'
       - '.github/workflows/ct-assembly-invariant.yml'
+      - '.github/actions/ct-setup/**'
   pull_request:
     paths:
       - 'ext/**'
+      - 'security/Makefile'
       - 'security/check-ct-assembly.rb'
       - '.github/workflows/ct-assembly-invariant.yml'
+      - '.github/actions/ct-setup/**'
   workflow_dispatch:
 
 permissions: {}
@@ -24,14 +28,11 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@0dafeac902942906541bc140009cdbf32665b601  # v1.315.0
+      # Checkout + Ruby setup (SHA-pinned in .github/actions/ct-setup — one
+      # place to bump when Dependabot updates checkout or setup-ruby).
+      - uses: ./.github/actions/ct-setup
         with:
           ruby-version: '3.4'
-          # No bundler-cache: this job runs a standalone stdlib-only Ruby
-          # script and never invokes `bundle exec`.
 
       # binutils (objdump) is preinstalled on ubuntu-latest — only fall back
       # to apt-get if a future image drops it. Skips `apt-get update` entirely
@@ -40,29 +41,12 @@ jobs:
       - name: Ensure objdump available
         run: command -v objdump || sudo apt-get install -y --no-install-recommends binutils
 
-      # Compile jacobian.c at the shipping optimisation level (-O2) with
-      # debug info so `objdump -dl` can attribute lines. The rest of the
-      # flag set mirrors ext/secp256k1_native/extconf.rb: -Wall -std=c99,
-      # plus -fcommon (needed by GCC 10+ against the extension's linkage
-      # style, matches security/Makefile).
-      #
-      # `-fno-stack-protector` is added strictly for this CI check — it removes
-      # GCC's `sub %fs:0x28,%rax; jne <__stack_chk_fail>` epilogue artefact from
-      # canary-protected functions. That `jne` is data-independent (canary vs
-      # canary), not a CT concern, but it inflates the conditional-jump count
-      # in the `jp_add_internal` invariant. Stripping the canary here lets the
-      # check inspect exactly the CT-relevant control flow. Shipping continues
-      # to be built with `-fstack-protector-strong` per Ruby's mkmf defaults.
-      - name: Compile jacobian.c at -O2 -g (no stack protector — CT-only view)
-        run: |
-          RUBY_HDR_DIR=$(ruby -e 'puts RbConfig::CONFIG["rubyhdrdir"]')
-          RUBY_ARCH_HDR_DIR=$(ruby -e 'puts RbConfig::CONFIG["rubyarchhdrdir"]')
-          gcc -O2 -g -Wall -std=c99 -fcommon -fno-stack-protector \
-              -I ext/secp256k1_native \
-              -I "$RUBY_HDR_DIR" \
-              -I "$RUBY_ARCH_HDR_DIR" \
-              -c ext/secp256k1_native/jacobian.c \
-              -o /tmp/jacobian.o
+      # Compile via security/Makefile so the CI check and local
+      # security/run-checks.sh use exactly the same flag set. See the
+      # `jacobian_ct.o` target for the flag rationale (in particular
+      # `-fno-stack-protector` — canary artefact, not a CT-relevant flag).
+      - name: Compile jacobian.c via security/Makefile
+        run: make -C security jacobian_ct.o
 
       - name: Assert ladder loop body + jp_add_internal branchlessness
-        run: ruby security/check-ct-assembly.rb /tmp/jacobian.o
+        run: ruby security/check-ct-assembly.rb security/jacobian_ct.o

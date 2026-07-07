@@ -7,11 +7,13 @@ on:
       - 'ext/**'
       - 'security/check-ct-mask-guard.sh'
       - '.github/workflows/ct-source-guard.yml'
+      - '.github/actions/ct-setup/**'
   pull_request:
     paths:
       - 'ext/**'
       - 'security/check-ct-mask-guard.sh'
       - '.github/workflows/ct-source-guard.yml'
+      - '.github/actions/ct-setup/**'
   workflow_dispatch:
 
 permissions: {}
@@ -23,6 +25,6 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: ./.github/actions/ct-setup
       - name: 'Guard: no raw -(uint32_t) / -(uint64_t) mask construction outside ct_value_barrier_u64'
         run: bash security/check-ct-mask-guard.sh

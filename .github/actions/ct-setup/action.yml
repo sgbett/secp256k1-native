@@ -1,0 +1,23 @@
+name: 'CT invariant setup'
+description: >-
+  Common preamble for the CT invariant guard workflows (ct-source-guard,
+  ct-assembly-invariant): checkout with a SHA-pinned actions/checkout, plus
+  an optional SHA-pinned ruby/setup-ruby. Centralised so a Dependabot bump
+  or a permission-model change touches one place instead of every workflow
+  that runs a CT guard.
+
+inputs:
+  ruby-version:
+    description: 'Ruby version. Leave empty to skip ruby/setup-ruby.'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+    - uses: ruby/setup-ruby@0dafeac902942906541bc140009cdbf32665b601  # v1.315.0
+      if: inputs.ruby-version != ''
+      with:
+        ruby-version: ${{ inputs.ruby-version }}

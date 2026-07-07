@@ -46,7 +46,10 @@ fi
 
 # Grep every occurrence of the mask-construction shape, then filter out:
 #   1. Comment lines (docstring prose) — lines whose first non-whitespace char
-#      after the "file:line:" prefix is `*`.
+#      after the "file:line:" prefix is `*`, `//` (C99 single-line comment),
+#      or `/*` (block-comment opener on the same line as the pattern). All
+#      three shapes can legitimately mention the anti-pattern by name in a
+#      warning comment, and none affect codegen.
 #   2. Lines in `ext/secp256k1_native/secp256k1_native.h` where the pattern is
 #      passed directly into `ct_value_barrier_u64(...)` with a `uint64_t`
 #      width. This is the ONE legitimate site — the `ct_mask_u64` definition
@@ -85,7 +88,7 @@ else
 fi
 
 violations=$(printf '%s' "$raw_matches" \
-    | grep -vE '^[^:]+:[0-9]+:[[:space:]]*\*' \
+    | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(\*|//|/\*)' \
     | grep -vE '^ext/secp256k1_native/secp256k1_native\.h:[0-9]+:.*[^A-Za-z0-9_]ct_value_barrier_u64\([[:space:]]*-[[:space:]]*\([[:space:]]*uint64_t[[:space:]]*\)' \
     || true)
 
