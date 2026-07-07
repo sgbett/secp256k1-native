@@ -47,11 +47,16 @@ fi
 # Grep every occurrence of the mask-construction shape, then filter out:
 #   1. Comment lines (docstring prose) — lines whose first non-whitespace char
 #      after the "file:line:" prefix is `*`.
-#   2. Lines where the pattern is passed directly into `ct_value_barrier_u64(`
-#      with a `uint64_t` width — the one legitimate site (inside `ct_mask_u64`).
-#      Word-boundary anchored on the LHS so `my_ct_value_barrier_u64(` etc.
-#      cannot bypass. This is a semantic filter (not a line-range filter) so it
-#      survives reordering of secp256k1_native.h.
+#   2. Lines in `ext/secp256k1_native/secp256k1_native.h` where the pattern is
+#      passed directly into `ct_value_barrier_u64(...)` with a `uint64_t`
+#      width. This is the ONE legitimate site — the `ct_mask_u64` definition
+#      in the header — and the exemption is file-scoped so an inline
+#      `ct_value_barrier_u64(-(uint64_t)(cond))` written *elsewhere* still
+#      trips the guard. The stated discipline is "all masks through
+#      `ct_mask_u64`", and file scoping is what enforces it. Word-boundary
+#      anchored on the LHS so `my_ct_value_barrier_u64(` etc. cannot bypass.
+#      Prefer this over line-range anchoring so reordering within the header
+#      does not break the exemption.
 #
 # The search pattern tolerates whitespace between the leading `-` and the
 # `(uintNN_t)` cast, and does not require the cast operand to be
@@ -81,7 +86,7 @@ fi
 
 violations=$(printf '%s' "$raw_matches" \
     | grep -vE '^[^:]+:[0-9]+:[[:space:]]*\*' \
-    | grep -vE '(^|[^A-Za-z0-9_])ct_value_barrier_u64\([[:space:]]*-[[:space:]]*\([[:space:]]*uint64_t[[:space:]]*\)' \
+    | grep -vE '^ext/secp256k1_native/secp256k1_native\.h:[0-9]+:.*[^A-Za-z0-9_]ct_value_barrier_u64\([[:space:]]*-[[:space:]]*\([[:space:]]*uint64_t[[:space:]]*\)' \
     || true)
 
 if [ -n "$violations" ]; then
