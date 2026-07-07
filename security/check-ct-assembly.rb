@@ -6,10 +6,17 @@
 # What this enforces
 # ------------------
 # The Montgomery ladder in scalar_multiply_ct_internal (ext/secp256k1_native/
-# jacobian.c) MUST compile to a loop body whose only conditional jump is the
-# public loop counter at the bottom (`jae`/`jnb` on the decremented `i`).
-# Any additional conditional jump (je, jne, jb, ja, jz, jnz, ...) or
-# conditional move (cmov*) inside the loop body is a fail.
+# jacobian.c) MUST compile to a loop body whose ONLY back-edge to the loop
+# top is the public loop counter at the bottom (`jae`/`jnb` on the
+# decremented `i`). Additional conditional jumps inside the body are
+# classified — see `classify_loop_jumps` for the full rubric:
+#
+#   forward conditional branch     → FAIL (data-dependent branch, the H-2 shape)
+#   backward jump with target
+#     before the loop top           → FAIL (unexpected escape edge)
+#   backward jump with target
+#     inside the loop body          → NOTE  (presumed inner constant-count loop)
+#   conditional move (cmov*)        → FAIL (any use inside the loop is CT-relevant)
 #
 # Why this is load-bearing (H-2 follow-up)
 # ----------------------------------------
@@ -33,10 +40,8 @@
 #   1. scalar_multiply_ct_internal — the Montgomery ladder driver.
 #      Region: the trailing backward-branching loop (its target is the loop
 #      top, its own address is the bottom).
-#      Failure conditions inside that region:
-#        (a) more than one conditional-jump mnemonic (j<cond>), OR
-#        (b) any conditional-move mnemonic (cmov<cond>).
-#      The single legitimate conditional jump is the loop counter's back-edge.
+#      Failure conditions inside that region: see the `classify_loop_jumps`
+#      rubric in the "What this enforces" section above.
 #
 #   2. jp_add_internal — the branchless Jacobian point addition. In source
 #      it is deliberately mask-based end-to-end (see docstring in jacobian.c).
@@ -49,10 +54,11 @@
 #        (b) any conditional-move mnemonic (cmov<cond>).
 #      Unconditional jmp / call / ret are all permitted.
 #
-# If the compiler inlines jp_add_internal into the ladder, its standalone
-# symbol is absent from objdump output; the checker emits a NOTE and treats
-# that as PASS — the inlined body sits inside the ladder loop and is covered
-# by the loop-body check instead.
+# If jp_add_internal is absent from objdump output — either because the
+# compiler inlined it into the ladder, or because it has been renamed /
+# deleted since this script was last updated — the checker FAILs by default
+# so the coverage gap is loud. Set ALLOW_INLINED_JP_ADD_INTERNAL=1 to opt
+# back into treating the absence as inlined (covered by the loop-body check).
 #
 # Platform scoping
 # ----------------
@@ -206,16 +212,25 @@ end
 #   - `forward_branches` — target > jump_addr. Zero allowed. Any forward
 #     conditional branch inside the loop body is a data-dependent branch —
 #     the H-2 shape.
-#   - `inner_backwards` — everything else (backward jumps whose target is
-#     between loop_top_addr and jump_addr). Allowed — these are the back-edges
-#     of *inner* constant-count loops the compiler chose not to unroll. Their
-#     loop count is a source-level constant, so their timing is not data-
-#     dependent. A NOTE is emitted so a reviewer can eyeball them.
+#   - `out_of_loop` — backward jumps whose target is *before* the ladder loop
+#     top (target < loop_top_addr). This is not a shape any compiler-emitted
+#     loop should take — it's an escape edge to cleanup / exception paths, or
+#     a genuine data-dependent regression. Zero allowed, treated as an offence.
+#   - `inner_backwards` — everything else: backward jumps whose target sits
+#     *inside* the ladder loop body (loop_top_addr < target < jump_addr).
+#     Allowed — these are the back-edges of *inner* constant-count loops the
+#     compiler chose not to unroll. Their loop count is source-level constant,
+#     so their timing is not data-dependent. NOTE emitted so a reviewer can
+#     eyeball them.
 def classify_loop_jumps(loop_jumps, top_addr)
   back_edges = loop_jumps.select { |_, _, target| target == top_addr }
   forward_branches = loop_jumps.select { |addr, _, target| target > addr }
-  inner_backwards = loop_jumps - back_edges - forward_branches
-  { back_edges: back_edges, forward_branches: forward_branches, inner_backwards: inner_backwards }
+  out_of_loop = loop_jumps.select { |_, _, target| target < top_addr }
+  inner_backwards = loop_jumps - back_edges - forward_branches - out_of_loop
+  { back_edges: back_edges,
+    forward_branches: forward_branches,
+    out_of_loop: out_of_loop,
+    inner_backwards: inner_backwards }
 end
 
 # Report offences (invariant violations) and notes (allowed-but-worth-flagging
@@ -238,6 +253,15 @@ def report_offences(loop_jumps, loop_cmovs, top_addr)
     problems << "found #{classification[:forward_branches].size} forward conditional " \
                 'branch(es) inside the ladder loop body — the H-2 shape (data-dependent branch):'
     classification[:forward_branches].each do |addr, mnem, target|
+      problems << "    #{format('%#x', addr)}: #{mnem} -> #{format('%#x', target)}"
+    end
+  end
+
+  unless classification[:out_of_loop].empty?
+    problems << "found #{classification[:out_of_loop].size} conditional jump(s) whose " \
+                "target sits before the ladder loop top #{format('%#x', top_addr)} — " \
+                'unexpected control-flow shape (escape edge or data-dependent regression):'
+    classification[:out_of_loop].each do |addr, mnem, target|
       problems << "    #{format('%#x', addr)}: #{mnem} -> #{format('%#x', target)}"
     end
   end
