@@ -54,7 +54,13 @@ echo "== CT assembly invariant (ladder + jp_add_internal branchlessness) =="
 if [ "$(uname -s)" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
   echo "  SKIP: only runs on Linux x86_64 (see .github/workflows/ct-assembly-invariant.yml)"
 elif ! command -v objdump >/dev/null 2>&1; then
-  echo "  SKIP: GNU objdump not present"
+  echo "  SKIP: objdump not present"
+elif ! objdump --version 2>/dev/null | head -1 | grep -qE 'GNU objdump|Binutils'; then
+  # The Ruby checker itself SKIPs on non-GNU objdump (LLVM's ships as `objdump`
+  # on some setups and emits a different disassembly format). If we let it
+  # SKIP, exit 0 propagates back here and we'd incorrectly report PASS.
+  # Detect the same condition and SKIP at the wrapper level.
+  echo "  SKIP: GNU objdump not on PATH first (found: $(objdump --version 2>&1 | head -1))"
 elif cc_bin=${CC:-cc}; cc_bin=${cc_bin%% *}; ! command -v "$cc_bin" >/dev/null 2>&1; then
   # Match the compiler the Makefile will actually invoke: $(CC) defaults to
   # `cc` but can be overridden via `CC=...` in the env (common in CI/dev).

@@ -49,8 +49,11 @@ jobs:
       # security/run-checks.sh use exactly the same flag set. See the
       # `jacobian_ct.o` target for the flag rationale (in particular
       # `-fno-stack-protector` — canary artefact, not a CT-relevant flag).
+      # Pin CC=gcc: check-ct-assembly.rb targets GCC x86_64 codegen
+      # specifically, and the Makefile's `CC ?= cc` fallback could pick
+      # up clang if a future runner image ever changes the `cc` alias.
       - name: Compile jacobian.c via security/Makefile
-        run: make -C security jacobian_ct.o
+        run: make -C security jacobian_ct.o CC=gcc
 
       - name: Assert ladder loop body + jp_add_internal branchlessness
         run: ruby security/check-ct-assembly.rb security/jacobian_ct.o
