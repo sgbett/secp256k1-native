@@ -66,7 +66,7 @@ When testing or development reveals a security issue (side-channel leakage, arit
 ```bash
 bundle install                        # Install dependencies
 bundle exec rake compile              # Compile C extension
-bundle exec rspec                     # Run full test suite (368 examples)
+bundle exec rspec                     # Run full test suite (416 examples)
 bundle exec rspec spec/secp256k1_spec.rb           # Pure-Ruby tests only
 bundle exec rspec spec/secp256k1_native_spec.rb    # C extension tests only
 bundle exec rspec spec/secp256k1_compliance_spec.rb # Wycheproof compliance

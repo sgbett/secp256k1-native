@@ -121,7 +121,7 @@ The compiled bundle is placed at `lib/secp256k1_native.bundle` (macOS) or `lib/s
 bundle exec rspec
 ```
 
-The test suite has 303 examples covering:
+The test suite has 416 examples covering:
 
 - Wycheproof ECDSA compliance vectors
 - Field, scalar, and Jacobian compliance vectors
