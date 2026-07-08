@@ -80,6 +80,8 @@ Default rake task runs `compile` then `spec`.
 
 ## Architecture
 
+> **Canonical reference: [docs/architecture.md](docs/architecture.md).** This section is the operational summary for editing; the deep internals (`uint256_t` representation, Integer marshalling, fast reduction, wNAF cache) live there.
+
 ### Dual-implementation pattern
 
 The core design: all curve operations are implemented in pure Ruby (`lib/secp256k1.rb`), then selectively replaced by C equivalents at load time.
@@ -92,9 +94,8 @@ The core design: all curve operations are implemented in pure Ruby (`lib/secp256
 
 - Requires C99 compiler with `__uint128_t` support (GCC/Clang on x86_64/arm64)
 - On unsupported platforms (MSVC/Windows): generates no-op Makefile, gem still installs
-- Internal representation: `uint256_t` struct of 4 x `uint64_t` limbs (little-endian)
-- Marshals Ruby Integers via `rb_integer_pack`/`rb_integer_unpack`
-- Compiled output: `lib/secp256k1_native.bundle` (macOS) or `lib/secp256k1_native.so` (Linux)
+
+Internal representation (`uint256_t` limbs), Integer marshalling, and fast reduction: see [docs/architecture.md](docs/architecture.md#internal-representation-c-extension).
 
 ### Scalar multiplication strategies
 

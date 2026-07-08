@@ -64,6 +64,8 @@ k = Secp256k1.scalar_inv(42)  # scalar inverse
 
 ## Architecture
 
+A high-level overview follows. For internal implementation details — the dual-implementation pattern, the full list of replaced methods, the `uint256_t` representation, and the scope table — see [docs/architecture.md](docs/architecture.md).
+
 ```
 secp256k1-native
 ├── lib/secp256k1.rb           # Pure-Ruby module: field, scalar, point ops, wNAF, Montgomery ladder
@@ -84,16 +86,9 @@ secp256k1-native
 
 ### Native C extension (optional)
 
-`Secp256k1Native` is an optional C extension that replaces hot-path field, scalar, and Jacobian point operations with fixed-width C implementations. When compiled, `secp256k1.rb` automatically delegates to the extension at load time.
+`Secp256k1Native` is an optional C extension that replaces hot-path field, scalar, and Jacobian point operations — plus the constant-time Montgomery ladder (fully branchless `cswap`) — with fixed-width C implementations. When compiled, `secp256k1.rb` automatically delegates to the extension at load time; the wNAF loop and ECDSA/Schnorr logic remain in Ruby, calling native primitives per step.
 
-The extension accelerates:
-
-- All field arithmetic (`fmul`, `fsqr`, `fadd`, `fsub`, `fneg`, `finv`, `fsqrt`, `fred`)
-- All scalar arithmetic (`scalar_mul`, `scalar_add`, `scalar_inv`, `scalar_mod`)
-- Jacobian point operations (`jp_double`, `jp_add`, `jp_neg`)
-- Montgomery ladder (`scalar_multiply_ct`) — fully branchless cswap in C
-
-The wNAF loop and ECDSA/Schnorr logic remain in Ruby, calling native primitives per step.
+See [docs/architecture.md](docs/architecture.md) for the full list of replaced methods and the dual-implementation pattern.
 
 ### Performance
 
