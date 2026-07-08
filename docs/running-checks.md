@@ -77,7 +77,7 @@ macOS with no special tooling:
 ```sh
 bundle install
 bundle exec rake compile        # builds lib/secp256k1_native.bundle on macOS (.so on Linux)
-bundle exec rspec               # 368 examples
+bundle exec rspec               # 416 examples
 ```
 
 (The binstub-not-on-PATH and `-fcommon` quirks noted in the harness builds were
