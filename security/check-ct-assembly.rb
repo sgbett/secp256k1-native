@@ -235,9 +235,9 @@ end
 
 # Report offences (invariant violations) and notes (allowed-but-worth-flagging
 # observations) as two arrays of human-readable lines. Empty offences means
-# the invariant holds; notes may fire on a passing check.
-def report_offences(loop_jumps, loop_cmovs, top_addr)
-  classification = classify_loop_jumps(loop_jumps, top_addr)
+# the invariant holds; notes may fire on a passing check. `classification`
+# is the return value of `classify_loop_jumps`.
+def report_offences(classification, loop_cmovs, top_addr)
   problems = []
   notes = []
 
@@ -284,14 +284,15 @@ def report_offences(loop_jumps, loop_cmovs, top_addr)
   [problems, notes]
 end
 
-def report_pass(top_addr, bottom_addr, loop_jumps)
+def report_pass(top_addr, bottom_addr, classification)
   lo = format('%#x', top_addr)
   hi = format('%#x', bottom_addr)
-  back = loop_jumps.find { |_, _, target| target == top_addr }
-  addr, mnem, = back
+  addr, mnem, = classification[:back_edges].first
+  inner_n = classification[:inner_backwards].size
+  suffix = inner_n.zero? ? '' : " (+#{inner_n} inner-loop note#{'s' if inner_n > 1})"
   puts "check-ct-assembly: PASS -- #{LADDER_SYMBOL} loop body [#{lo}..#{hi}] " \
        "back-edge #{format('%#x', addr)}: #{mnem} -> #{lo}; " \
-       'no forward branches, no cmov.'
+       "no forward branches, no cmov#{suffix}."
 end
 
 def report_pass_jp_add(range)
@@ -393,11 +394,12 @@ def check_ladder(disasm, input_path)
   top_addr, bottom_addr = range
   loop_jumps = in_range(cond_jumps, top_addr, bottom_addr)
   loop_cmovs = in_range(cmovs, top_addr, bottom_addr)
-  problems, notes = report_offences(loop_jumps, loop_cmovs, top_addr)
+  classification = classify_loop_jumps(loop_jumps, top_addr)
+  problems, notes = report_offences(classification, loop_cmovs, top_addr)
   notes.each { |n| puts "check-ct-assembly: #{n}" }
 
   if problems.empty?
-    report_pass(top_addr, bottom_addr, loop_jumps)
+    report_pass(top_addr, bottom_addr, classification)
     return true
   end
 
