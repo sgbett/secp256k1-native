@@ -23,6 +23,10 @@ jobs:
       contents: read
 
     steps:
+      # Composite action was tried and reverted: `uses: ./.github/actions/*`
+      # requires the repo already checked out, so a composite cannot own its
+      # own checkout step. The pin duplication between this file and
+      # ct-assembly-invariant.yml stays; Dependabot handles the bumps.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - name: 'Guard: no raw -(uint32_t) / -(uint64_t) mask construction outside ct_value_barrier_u64'
         run: bash security/check-ct-mask-guard.sh

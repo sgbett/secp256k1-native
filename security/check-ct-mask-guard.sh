@@ -17,14 +17,24 @@
 #   `-(uint{32,64}_t)(...)`. Whitespace variants are matched
 #   (`- (uint64_t)(...)`, `-(uint64_t) (...)`, `-( uint64_t )(...)` — all
 #   compile identically) so a stylistic reformat cannot silently evade the
-#   guard. The pattern is legitimate only when its result is fed directly into
-#   `ct_value_barrier_u64(...)` — i.e. inside `ct_mask_u64` itself. Every other
-#   occurrence in code is a latent CT regression. Prose in docstrings is
-#   filtered by skipping lines whose first non-whitespace character is `*`.
+#   guard. Unparenthesised operands are matched too (`-(uint64_t)cond`), so
+#   dropping the operand parens is not an escape. The pattern is legitimate
+#   only when its result is fed directly into `ct_value_barrier_u64(...)`
+#   inside `ct_mask_u64`'s definition in `secp256k1_native.h`. Every other
+#   occurrence in code — including `ct_value_barrier_u64(...)` inlined at
+#   another call site — is a latent CT regression. Prose in docstrings is
+#   filtered by skipping lines whose first non-whitespace character is `*`
+#   (block-comment continuation) or `//` (C99 single-line comment). `/*` is
+#   NOT stripped because `/* short */ code_with_pattern` puts real code
+#   after the comment closer.
 #
-#   The legitimate-site filter is anchored to a word boundary on
-#   `ct_value_barrier_u64` so a lookalike wrapper (`my_ct_value_barrier_u64`,
-#   `xct_value_barrier_u64`) cannot piggyback on the exemption.
+#   The legitimate-site filter is anchored on two fronts:
+#     - file scope — only lines in `ext/secp256k1_native/secp256k1_native.h`
+#       are eligible (so an inline `ct_value_barrier_u64(-(uint64_t)(cond))`
+#       elsewhere trips the guard);
+#     - word boundary on `ct_value_barrier_u64` (so a lookalike wrapper
+#       `my_ct_value_barrier_u64`, `xct_value_barrier_u64` cannot piggyback
+#       on the exemption).
 #
 # Exit codes:
 #   0 — no violations (only the legitimate barrier-wrapped site matched, if any).
@@ -45,8 +55,15 @@ if [ ! -d "$SEARCH_DIR" ]; then
 fi
 
 # Grep every occurrence of the mask-construction shape, then filter out:
-#   1. Comment lines (docstring prose) — lines whose first non-whitespace char
-#      after the "file:line:" prefix is `*`.
+#   1. Comment lines (docstring prose):
+#        (a) `*`-prefixed lines (block-comment continuation),
+#        (b) `//`-prefixed lines (C99 single-line comment),
+#        (c) whole-line `/* ... */` blocks — content is only a block comment
+#            with optional trailing whitespace. `/* stub */ code_with_pattern`
+#            (real code after the closing `*/`) is deliberately NOT stripped;
+#            a contributor cannot smuggle a violation past the guard by
+#            prefixing it with `/* x */`. This is why the regex requires
+#            `[[:space:]]*$` after the closing `*/`.
 #   2. Lines in `ext/secp256k1_native/secp256k1_native.h` where the pattern is
 #      passed directly into `ct_value_barrier_u64(...)` with a `uint64_t`
 #      width. This is the ONE legitimate site — the `ct_mask_u64` definition
@@ -85,7 +102,8 @@ else
 fi
 
 violations=$(printf '%s' "$raw_matches" \
-    | grep -vE '^[^:]+:[0-9]+:[[:space:]]*\*' \
+    | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(\*|//)' \
+    | grep -vE '^[^:]+:[0-9]+:[[:space:]]*/\*.*\*/[[:space:]]*$' \
     | grep -vE '^ext/secp256k1_native/secp256k1_native\.h:[0-9]+:.*[^A-Za-z0-9_]ct_value_barrier_u64\([[:space:]]*-[[:space:]]*\([[:space:]]*uint64_t[[:space:]]*\)' \
     || true)
 

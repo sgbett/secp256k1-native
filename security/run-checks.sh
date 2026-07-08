@@ -54,27 +54,35 @@ echo "== CT assembly invariant (ladder + jp_add_internal branchlessness) =="
 if [ "$(uname -s)" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
   echo "  SKIP: only runs on Linux x86_64 (see .github/workflows/ct-assembly-invariant.yml)"
 elif ! command -v objdump >/dev/null 2>&1; then
-  echo "  SKIP: GNU objdump not present"
-elif ! command -v gcc >/dev/null 2>&1; then
-  echo "  SKIP: gcc not present"
+  echo "  SKIP: objdump not present"
+elif ! objdump --version 2>/dev/null | head -1 | grep -qE 'GNU objdump|Binutils'; then
+  # The Ruby checker itself SKIPs on non-GNU objdump (LLVM's ships as `objdump`
+  # on some setups and emits a different disassembly format). If we let it
+  # SKIP, exit 0 propagates back here and we'd incorrectly report PASS.
+  # Detect the same condition and SKIP at the wrapper level.
+  echo "  SKIP: GNU objdump not on PATH first (found: $(objdump --version 2>&1 | head -1))"
+elif cc_bin=${CC:-cc}; cc_bin=${cc_bin%% *}; ! command -v "$cc_bin" >/dev/null 2>&1; then
+  # Match the compiler the Makefile will actually invoke: $(CC) defaults to
+  # `cc` but can be overridden via `CC=...` in the env (common in CI/dev).
+  # Extract just the executable (first token) so a wrapper form like
+  # `CC="ccache gcc"` or `CC="gcc-13 -std=c99"` is honoured.
+  echo "  SKIP: C compiler '$cc_bin' not present"
+elif ! command -v ruby >/dev/null 2>&1; then
+  echo "  SKIP: ruby not present (needed for the RbConfig header lookup and the checker)"
 else
-  ruby_hdr=$(ruby -e 'puts RbConfig::CONFIG["rubyhdrdir"]' 2>/dev/null || true)
-  ruby_arch_hdr=$(ruby -e 'puts RbConfig::CONFIG["rubyarchhdrdir"]' 2>/dev/null || true)
-  jacobian_o=$(mktemp -t jacobian.o.XXXXXX)
-  if gcc -O2 -g -Wall -std=c99 -fcommon -fno-stack-protector \
-         -I ../ext/secp256k1_native \
-         -I "$ruby_hdr" -I "$ruby_arch_hdr" \
-         -c ../ext/secp256k1_native/jacobian.c \
-         -o "$jacobian_o" 2>/dev/null; then
-    if ruby check-ct-assembly.rb "$jacobian_o" >/dev/null 2>&1; then
-      echo "  PASS: ladder + jp_add_internal branchlessness invariants hold"
-    else
-      echo "  FAIL: CT assembly invariant violated (re-run: ruby security/check-ct-assembly.rb <path>)"; rc=1
-    fi
+  # Let make print its own errors — swallowing them buries real compile issues
+  # (missing ruby-dev, jacobian.c break, etc.) behind a generic SKIP.
+  if ! make -s jacobian_ct.o; then
+    echo "  FAIL: compile of jacobian.c via security/Makefile failed (see error above)"; rc=1
+  elif ruby check-ct-assembly.rb jacobian_ct.o >/dev/null 2>&1; then
+    echo "  PASS: ladder + jp_add_internal branchlessness invariants hold"
+    rm -f jacobian_ct.o
   else
-    echo "  SKIP: compile of jacobian.c failed (Ruby headers unavailable?)"
+    # Preserve the object file so the rerun hint actually finds it.
+    # `make -C security ...` is directory-agnostic — the caller can be at
+    # repo root or elsewhere.
+    echo "  FAIL: CT assembly invariant violated (re-run from repo root: make -C security jacobian_ct.o && ruby security/check-ct-assembly.rb security/jacobian_ct.o)"; rc=1
   fi
-  rm -f "$jacobian_o"
 fi
 
 echo
