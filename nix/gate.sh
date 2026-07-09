@@ -163,33 +163,59 @@ for cc in $GATE_COMPILERS; do
     : > "$work/dudect.raw"
     pin=""
     [ -n "$GATE_CORE" ] && pin="taskset -c $GATE_CORE chrt -f 99"
+    runs_ok=0
     for run in $(seq 1 "$GATE_DUDECT_RUNS"); do
-      step $pin ./timing/timing_harness 2>/dev/null | grep '^dudect:' >> "$work/dudect.raw" || true
+      # Capture per run so a timeout/crash (non-zero from `step`) is DETECTED,
+      # not swallowed by a pipeline `|| true`. A run must exit 0 AND emit dudect
+      # lines to count — otherwise it contributes nothing and is not a pass.
+      if step $pin ./timing/timing_harness >"$work/run" 2>/dev/null \
+         && grep -q '^dudect:' "$work/run"; then
+        grep '^dudect:' "$work/run" >> "$work/dudect.raw"
+        runs_ok=$((runs_ok + 1))
+      fi
     done
-    # Aggregate per op: n_over threshold, max|t|, mean|t|; apply strict/lenient.
-    agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v lmean="$GATE_LENIENT_MEAN" '
-      /^dudect:/ {
-        label=$2; for(i=1;i<NF;i++) if($i=="t="){ t=$(i+1); break }
-        a=t; if(a<0)a=-a
-        n[label]++; sum[label]+=a; if(a>mx[label])mx[label]=a; if(a>thr)ov[label]++
-      }
-      END {
-        anyfail=0
-        for (l in n) {
-          mean=sum[l]/n[l]
-          isstrict = (l ~ strict)
-          if (isstrict) { fail = (ov[l]>0) } else { fail = (mean>lmean) }
-          if (fail) anyfail=1
-          printf "    %-28s runs=%d over%.1f=%d max|t|=%.2f mean|t|=%.2f %s%s\n",
-                 l, n[l], thr, ov[l]+0, mx[l], mean,
-                 (isstrict?"[strict]":"[lenient]"), (fail?" <== FAIL":"")
+    if [ "$runs_ok" -eq 0 ]; then
+      # Fail closed (principle 1): zero usable dudect output — every run
+      # crashed/timed out — is inconclusive, never a pass.
+      log "  dudect  : FAIL — no dudect output from $GATE_DUDECT_RUNS run(s) (crash/timeout)"
+      cc_pass=0
+    else
+      [ "$runs_ok" -lt "$GATE_DUDECT_RUNS" ] && \
+        log "  dudect  : note — only $runs_ok/$GATE_DUDECT_RUNS runs produced output"
+      # Aggregate per op: n_over threshold, max|t|, mean|t|; apply strict/lenient.
+      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v lmean="$GATE_LENIENT_MEAN" '
+        /^dudect:/ {
+          label=$2; tv=""
+          # dudect prints "t=%+9.4f": a standalone "t=" then the value for small
+          # |t|, but GLUED ("t=+875.0000") once |t|>=100 drops the pad space — i.e.
+          # exactly a large leak. Match the field starting "t=" and take its
+          # numeric suffix (or the next field), resetting per line so a missed
+          # parse can never carry a previous value forward.
+          for (i=1; i<=NF; i++) if ($i ~ /^t=/) { tv=$i; sub(/^t=/,"",tv); if (tv=="") tv=$(i+1); break }
+          if (tv=="") { bad++; next }
+          a=tv+0; if(a<0)a=-a
+          n[label]++; sum[label]+=a; if(a>mx[label])mx[label]=a; if(a>thr)ov[label]++
         }
-        exit anyfail
-      }' "$work/dudect.raw")"
-    dudect_rc=$?
-    log "  dudect  : $([ $dudect_rc -eq 0 ] && echo PASS || echo FAIL) (N=$GATE_DUDECT_RUNS${GATE_CORE:+, core $GATE_CORE})"
-    printf '%s\n' "$agg" | tee -a "$REPORT" >/dev/null
-    [ $dudect_rc -ne 0 ] && cc_pass=0
+        END {
+          anyfail=0
+          # Fail closed on any line whose t could not be parsed — never drop it.
+          if (bad>0) { anyfail=1; printf "    %-28s %d line(s) with unparseable t <== FAIL\n","(parse-error)",bad }
+          for (l in n) {
+            mean=sum[l]/n[l]
+            isstrict = (l ~ strict)
+            if (isstrict) { fail = (ov[l]>0) } else { fail = (mean>lmean) }
+            if (fail) anyfail=1
+            printf "    %-28s runs=%d over%.1f=%d max|t|=%.2f mean|t|=%.2f %s%s\n",
+                   l, n[l], thr, ov[l]+0, mx[l], mean,
+                   (isstrict?"[strict]":"[lenient]"), (fail?" <== FAIL":"")
+          }
+          exit anyfail
+        }' "$work/dudect.raw")"
+      dudect_rc=$?
+      log "  dudect  : $([ $dudect_rc -eq 0 ] && echo PASS || echo FAIL) (N=$runs_ok${GATE_CORE:+, core $GATE_CORE})"
+      printf '%s\n' "$agg" | tee -a "$REPORT" >/dev/null
+      [ $dudect_rc -ne 0 ] && cc_pass=0
+    fi
   fi
 
   verdict="$([ $cc_pass -eq 1 ] && echo PASS || echo FAIL)"

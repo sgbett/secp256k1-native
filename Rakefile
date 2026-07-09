@@ -99,7 +99,7 @@ namespace :docs do
   end
 
   desc 'Serve the Jekyll docs locally with livereload'
-  task :serve do
+  task serve: %i[generate embed] do
     _jekyll 'jekyll', 'serve', '--livereload'
   end
 

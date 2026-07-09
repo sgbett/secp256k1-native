@@ -52,6 +52,7 @@ CHECKER="$ROOT/security/check-ct-assembly.rb"
 
 command -v "$CC"     >/dev/null 2>&1 || { echo "vanilla-ext: FATAL — CC '$CC' not on PATH" >&2; exit 2; }
 command -v objdump   >/dev/null 2>&1 || { echo "vanilla-ext: FATAL — objdump not on PATH (need binutils)" >&2; exit 2; }
+command -v readelf   >/dev/null 2>&1 || { echo "vanilla-ext: FATAL — readelf not on PATH (need binutils; used for the CC-took check)" >&2; exit 2; }
 command -v ruby      >/dev/null 2>&1 || { echo "vanilla-ext: FATAL — ruby not on PATH" >&2; exit 2; }
 [ -f "$SRC" ]     || { echo "vanilla-ext: FATAL — source not found: $SRC" >&2; exit 2; }
 [ -f "$CHECKER" ] || { echo "vanilla-ext: FATAL — checker not found: $CHECKER" >&2; exit 2; }
