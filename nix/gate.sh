@@ -114,7 +114,7 @@ for cc in $GATE_COMPILERS; do
   $RUBY_EXEC rake clobber >/dev/null 2>&1
   mkdir -p "$GATE_OUT"  # defensive: `rake clobber` wipes tmp/; never let it eat the results dir
   if ! ( cd ext/secp256k1_native \
-         && NIX_HARDENING_ENABLE="" step ruby extconf.rb \
+         && NIX_HARDENING_ENABLE="" CC="$cc" step ruby extconf.rb \
          && NIX_HARDENING_ENABLE="" step make CC="$cc" ) >"$work/build.log" 2>&1; then
     log "  SKIPPED — extension failed to build with $cc (dep/toolchain):"
     log "    $(tail -1 "$work/build.log")"
