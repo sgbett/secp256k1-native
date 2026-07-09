@@ -4,7 +4,7 @@
 
   # Pinned via flake.lock. The locked nixpkgs revision IS the gate's
   # "known-good compiler" record: bumping this input is the deliberate trigger
-  # to re-run the bare-metal dudect gate (see plans/reference-machine-nix.md and
+  # to re-run the bare-metal dudect gate (see plans/61-reference-machine-nix.md and
   # docs/security.md#empirical-timing-verification).
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
 
