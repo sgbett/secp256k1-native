@@ -83,7 +83,10 @@ One script, two contexts — the devShell (dev iteration) and the ISO service (t
 - **Widen:** add gcc14, 13, … toward 9.5 to the set (one-line change). Best-effort — a gcc that fights the dep closure is recorded `SKIPPED`, not a blocker.
 
 ### Phase 8 (later, optional) — CI unification
-Expose the **deterministic** gates (rspec, ctgrind, ASan, dfuzz, the codegen-equiv check) as flake `checks` so GitHub Actions runs them reproducibly via `nix flake check`; dudect stays bare-metal-only. One toolchain definition serves CI and the ISO.
+Two layers, both on GitHub's **native x86_64** runners (which also sidestep the ctgrind-under-emulation flakiness seen validating this in Docker-on-aarch64 — valgrind runs natively there):
+- **Cheap config guard, every PR:** `nix build --dry-run .#iso` (≈ `nix eval .#…iso.drvPath`) proves the whole `nixosConfiguration` still *evaluates* — catches module/option/lockfile breakage (the class hit during Phase 5) in ~1 min, no closure download.
+- **Deterministic gate, reproducibly:** expose the deterministic checks (rspec, ctgrind, ASan, dfuzz, the codegen-equiv check) as flake `checks` for `nix flake check`, and/or run `gate.sh` with a **`GATE_DUDECT_RUNS=0` / `GATE_SKIP_DUDECT`** mode (the "dry run" — build → vanilla-codegen-cert → rspec → ctgrind across the compiler set, **dudect skipped**). dudect stays bare-metal-only. One toolchain definition serves CI and the ISO.
+- Optionally a heavier real `nix build .#iso` (needs nix-store caching — Cachix / magic-nix-cache) on release/nightly to prove the image actually assembles.
 
 ## Build & test logistics
 - **Build (from macOS/aarch64):** the ISO is `x86_64-linux` — **can't build natively**. Best→fallback: nix **`linux-builder`** (nix-darwin VM backend, cleanest); a **Linux box** as remote builder; **Docker** (nix-in-linux) — ISO assembly is squashfs+xorriso, **no KVM needed**. `nix build .#iso` → `result/iso/*.iso`.
