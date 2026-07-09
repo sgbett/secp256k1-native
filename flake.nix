@@ -30,6 +30,8 @@
           binutils # objdump, for the disassembly branch-check
           valgrind # ctgrind deterministic constant-time gate
           util-linux # taskset / chrt for pinned dudect runs
+          pkg-config # lets native gems (psych) locate libyaml
+          libyaml # psych's C dependency — pulled in via yard-markdown -> rdoc
         ];
 
         shellHook = ''
