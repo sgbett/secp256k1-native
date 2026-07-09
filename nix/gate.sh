@@ -112,6 +112,14 @@ for cc in $GATE_COMPILERS; do
     log "  SKIPPED — compiler '$cc' not on PATH"; rm -rf "$work"; continue
   fi
   step $RUBY_EXEC rake clobber >/dev/null 2>&1
+  # Guarantee a from-scratch build for THIS compiler. rake clobber handles
+  # rake-compiler's tmp/, but the direct extconf/make below leaves ext/*.o +
+  # Makefile that rake doesn't track — a stale .o (newer than its .c) would be
+  # silently reused by the next compiler in the sweep and we'd measure the wrong
+  # binary. Remove them explicitly so a clobber hiccup can't corrupt the sweep.
+  rm -f ext/secp256k1_native/*.o ext/secp256k1_native/secp256k1_native.so \
+        ext/secp256k1_native/Makefile ext/secp256k1_native/mkmf.log \
+        lib/secp256k1_native.so
   mkdir -p "$GATE_OUT"  # defensive: `rake clobber` wipes tmp/; never let it eat the results dir
   if ! ( cd ext/secp256k1_native \
          && NIX_HARDENING_ENABLE="" CC="$cc" step ruby extconf.rb \
@@ -120,7 +128,12 @@ for cc in $GATE_COMPILERS; do
     log "    $(tail -1 "$work/build.log")"
     rm -rf "$work"; continue
   fi
-  cp ext/secp256k1_native/secp256k1_native.so lib/secp256k1_native.so
+  # Stage the freshly-built extension; fail closed if it doesn't land so that no
+  # later step (rspec/ctgrind) can run against a previous compiler's .so.
+  if ! cp ext/secp256k1_native/secp256k1_native.so lib/secp256k1_native.so; then
+    log "  SKIPPED — staging the built extension into lib/ failed"
+    rm -rf "$work"; continue
+  fi
   built=$((built + 1))
 
   cc_pass=1

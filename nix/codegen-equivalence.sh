@@ -75,7 +75,10 @@ CCS=("$@")
 [ ${#CCS[@]} -eq 0 ] && CCS=("gcc")
 for cc in "${CCS[@]}"; do
   echo "== codegen-equivalence: $cc =="
-  if OUT="$(mktemp -d)/jacobian.$cc.o" "$VANILLA" "$cc"; then :; else rc=1; fi
+  # Sanitise the CC for the object filename — an absolute path (e.g.
+  # /nix/store/.../bin/gcc) would otherwise create nested dirs / hit path limits.
+  tag=$(basename "$cc" | tr -c 'A-Za-z0-9._-' '_')
+  if OUT="$(mktemp -d)/jacobian.$tag.o" "$VANILLA" "$cc"; then :; else rc=1; fi
   echo
 done
 echo "== codegen-equivalence: $([ $rc -eq 0 ] && echo ALL PASS || echo FAIL) =="
