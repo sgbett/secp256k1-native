@@ -99,7 +99,8 @@ npk_rev="${GATE_NIXPKGS_REV:-$(grep -o '"rev": "[a-f0-9]*"' "$ROOT/flake.lock" 2
 sync "$REPORT" 2>/dev/null || true
 
 overall_rc=0
-built=0  # how many compilers actually built + ran the CT gates (not SKIPPED)
+built=0  # compilers that built + staged (and so ran the CT checks below), not
+         # SKIPPED — guards against a vacuous all-SKIPPED sweep reporting PASS
 
 for cc in $GATE_COMPILERS; do
   ccver="$("$cc" --version 2>/dev/null | head -1 || echo 'unknown')"
@@ -244,7 +245,7 @@ if [ "$built" -eq 0 ]; then
   log "GATE: NO COMPILERS BUILT — nothing verified. Check the toolchain (ruby/gcc on PATH)."
   overall_rc=2
 else
-  log "GATE: $([ $overall_rc -eq 0 ] && echo PASS || echo FAIL)  ($built/$(echo $GATE_COMPILERS | wc -w) compiler(s) verified; report: $REPORT)"
+  log "GATE: $([ $overall_rc -eq 0 ] && echo PASS || echo FAIL)  ($built/$(echo $GATE_COMPILERS | wc -w) compiler(s) built + tested; report: $REPORT)"
 fi
 step $RUBY_EXEC rake clobber >/dev/null 2>&1 || true
 exit $overall_rc

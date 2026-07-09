@@ -80,7 +80,10 @@
       apps.${system}.timing-gate = {
         type = "app";
         program = toString (pkgs.writeShellScript "timing-gate" ''
-          export PATH=${pkgs.lib.makeBinPath gateTools}:$PATH
+          # git so the gate can stamp the working-tree source rev in its report
+          # (gateTools deliberately omits it — the ISO has no .git and plumbs
+          # GATE_SOURCE_REV from the flake instead).
+          export PATH=${pkgs.lib.makeBinPath (gateTools ++ [ pkgs.git ])}:$PATH
           export GATE_RUBY_EXEC=""
           exec ${pkgs.bash}/bin/bash nix/gate.sh "$@"
         '');
