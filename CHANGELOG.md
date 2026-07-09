@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Reproducible timing-verification reference machine (NixOS sweep-ISO).** Codifies the bare-metal dudect pre-tag gate as declarative Nix: one bootable ISO that, unattended, sweeps a pinned compiler set (`flake.lock` is the "known-good compilers" record), certifies each build at **vanilla `gcc -O2`** (hardening off — nix's default hardening measurably changes the CT codegen), runs the assembly-invariant + `rspec` + `ctgrind` + `dudect`, writes a provenance-stamped report to the USB stick, and powers off. Fail-closed. Additive only (`flake.nix`, `nix/`) — no impact on `gem install` / `bundle`. See [`docs/reference-machine.md`](docs/reference-machine.md) and issue #61. (Prototype compiler = gcc15; bare-metal validation + widening the set is the remaining work.)
+
 ## [0.18.0] - 2026-06-30
 
 ### Security

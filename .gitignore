@@ -7,6 +7,10 @@ Gemfile.lock
 tmp/
 pkg/
 gate-results/
+result
+result-*
+ext/secp256k1_native/Makefile
+ext/secp256k1_native/mkmf.log
 lib/secp256k1_native.*
 .bundle/
 *.gem
