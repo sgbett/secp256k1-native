@@ -111,7 +111,7 @@ for cc in $GATE_COMPILERS; do
   if ! command -v "$cc" >/dev/null 2>&1; then
     log "  SKIPPED — compiler '$cc' not on PATH"; rm -rf "$work"; continue
   fi
-  $RUBY_EXEC rake clobber >/dev/null 2>&1
+  step $RUBY_EXEC rake clobber >/dev/null 2>&1
   mkdir -p "$GATE_OUT"  # defensive: `rake clobber` wipes tmp/; never let it eat the results dir
   if ! ( cd ext/secp256k1_native \
          && NIX_HARDENING_ENABLE="" CC="$cc" step ruby extconf.rb \
@@ -233,5 +233,5 @@ if [ "$built" -eq 0 ]; then
 else
   log "GATE: $([ $overall_rc -eq 0 ] && echo PASS || echo FAIL)  ($built/$(echo $GATE_COMPILERS | wc -w) compiler(s) verified; report: $REPORT)"
 fi
-$RUBY_EXEC rake clobber >/dev/null 2>&1 || true
+step $RUBY_EXEC rake clobber >/dev/null 2>&1 || true
 exit $overall_rc

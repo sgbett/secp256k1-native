@@ -15,6 +15,11 @@ let
   isolatedCore = config.referenceMachine.isolatedCore;
   # Full paths to each compiler-under-test's gcc wrapper (the gate's CC list).
   compilerBins = lib.concatStringsSep " " (map (g: "${g}/bin/gcc") gccSet);
+  # Source revision for the provenance report: the baked source is a store copy
+  # with no .git, and `git` isn't in gateTools, so `git rev-parse` would yield
+  # "unknown" on the ISO. Plumb it from the flake instead (rev when clean,
+  # dirtyRev when the tree is dirty, else "unknown").
+  srcRev = refSource.rev or refSource.dirtyRev or "unknown";
 in
 {
   # A minimal live ISO (installation-cd-minimal) as the base image.
@@ -77,10 +82,16 @@ in
       GATE_RUBY_EXEC="" \
       GATE_COMPILERS="${compilerBins}" \
       GATE_CORE="${toString isolatedCore}" \
+      GATE_SOURCE_REV="${srcRev}" \
       GATE_OUT="$out" \
-        bash nix/gate.sh || true
+        bash nix/gate.sh
+      gate_rc=$?
 
-      # EXIT trap syncs, unmounts, powers off.
+      # The EXIT trap syncs, unmounts, and powers off regardless. Exit with the
+      # gate's status (no `|| true`) so `systemctl status timing-gate` and the
+      # journal reflect PASS/FAIL — a detected leak must not read as a clean
+      # service success.
+      exit "$gate_rc"
     '';
   };
 }

@@ -21,8 +21,13 @@
 # they mean the hardened nix build is NOT the binary a stock user runs. Worse in
 # principle, hardening could mask a branch a stock build would emit. So we build
 # with hardening OFF (NIX_HARDENING_ENABLE="") to certify the binary users
-# actually get. On a non-nix gcc the variable is simply ignored, so this same
-# script is used to build the stock reference in a plain distro container.
+# actually get. (On a non-nix gcc, NIX_HARDENING_ENABLE is simply ignored.)
+#
+# This script needs ruby + the REAL Ruby headers (RbConfig rubyhdrdir), so it
+# runs where those exist — the nix devShell and the on-ISO gate. The STOCK
+# reference for the codegen-equivalence check is built SEPARATELY, with the
+# timing/ruby.h stubs (no ruby-dev), in a plain gcc:<major> container — see
+# nix/codegen-equivalence.sh.
 #
 # What this checks (all must pass; exit 1 on any failure)
 # -------------------------------------------------------
