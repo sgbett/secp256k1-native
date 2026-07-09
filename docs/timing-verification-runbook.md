@@ -8,6 +8,8 @@ nav_order: 2
 
 This is a checklist for re-running the **statistical** constant-time verification (`dudect` / Welch's t-test) on a quiet, isolated machine. It exists because the cloud/CI environment where the automated security review runs is a shared VM, and shared VMs are the wrong place to make a *timing* claim.
 
+> **Prefer the automated form where you can.** The [reproducible reference machine](reference-machine.md) codifies this whole procedure as a bootable NixOS ISO that sweeps a pinned compiler set unattended. This runbook remains the "without Nix" fallback — the same measurement performed by hand — for when you cannot boot the ISO.
+
 ## Why this can't be trusted in the cloud
 
 The `ctgrind` / valgrind secret-poisoning check (run in CI) is **deterministic**: it flags any machine instruction that branches or addresses memory based on a secret, regardless of how noisy the host is. That result is trustworthy anywhere.

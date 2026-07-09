@@ -15,6 +15,7 @@ site/
 doc/
 docs/reference/
 .yardoc/
+docs/_includes/reference-machine/
 .claude/
 
 # security-review harness binaries (build with security/Makefile)
