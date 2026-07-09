@@ -70,7 +70,14 @@ if [ -z "$RUBY_HDR" ] || [ -z "$RUBY_ARCH_HDR" ]; then
   exit 2
 fi
 
-OUT="${OUT:-$(mktemp -d)/jacobian.vanilla.o}"
+# When the caller doesn't supply OUT, use a private temp dir and clean it up on
+# exit — otherwise repeated invocations (the gate calls this per compiler) leak
+# a /tmp dir each. A caller that supplies OUT owns that path's lifecycle.
+if [ -z "${OUT:-}" ]; then
+  _vtmp="$(mktemp -d)"
+  OUT="$_vtmp/jacobian.vanilla.o"
+  trap 'rm -rf "$_vtmp"' EXIT
+fi
 mkdir -p "$(dirname "$OUT")"
 
 # Flags mirror security/Makefile's jacobian_ct.o target (the single source of

@@ -78,7 +78,9 @@ for cc in "${CCS[@]}"; do
   # Sanitise the CC for the object filename — an absolute path (e.g.
   # /nix/store/.../bin/gcc) would otherwise create nested dirs / hit path limits.
   tag=$(basename "$cc" | tr -c 'A-Za-z0-9._-' '_')
-  if OUT="$(mktemp -d)/jacobian.$tag.o" "$VANILLA" "$cc"; then :; else rc=1; fi
+  d="$(mktemp -d)"
+  if OUT="$d/jacobian.$tag.o" "$VANILLA" "$cc"; then :; else rc=1; fi
+  rm -rf "$d"  # don't leak a temp dir per compiler
   echo
 done
 echo "== codegen-equivalence: $([ $rc -eq 0 ] && echo ALL PASS || echo FAIL) =="
