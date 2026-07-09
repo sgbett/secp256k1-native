@@ -55,7 +55,9 @@ in
       StandardError = "tty";
       TTYPath = "/dev/tty1";
     };
-    path = gateTools ++ [ pkgs.util-linux pkgs.e2fsprogs pkgs.mount ];
+    # gateTools already provides util-linux (mount/umount/blkid) and coreutils
+    # (sync); no need to re-add them. Keep the PATH minimal (principle 3).
+    path = gateTools;
     script = ''
       set -u
       trap 'sync; umount /mnt 2>/dev/null || true; systemctl poweroff' EXIT
