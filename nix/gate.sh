@@ -56,14 +56,18 @@ GATE_CORE="${GATE_CORE:-}"
 GATE_DUDECT_RUNS="${GATE_DUDECT_RUNS:-20}"
 GATE_OUT="${GATE_OUT:-$ROOT/gate-results}"
 GATE_TIMEOUT="${GATE_TIMEOUT:-1800}"
-GATE_LENIENT_MEAN="${GATE_LENIENT_MEAN:-10}"
+GATE_LENIENT_MEAN="${GATE_LENIENT_MEAN:-10}"   # lenient ops: mean|t| bound
+GATE_LENIENT_MAX="${GATE_LENIENT_MAX:-15}"     # lenient ops: any single run over this = a spike, not an artefact
 THRESHOLD="4.5"
 
 # Ops whose timing MUST be flat (secret-dependent inputs) — any run over 4.5 is a
 # fail. The operand-value artefact ops (field ops + jp_add) are lenient: marginal
-# single-run excursions are tolerated, flagged only if the mean|t| exceeds
-# GATE_LENIENT_MEAN (see CLAUDE.md: jp_add_internal ~7.5 microarch artefact).
-STRICT_RE='scalar_multiply_ct|scalar_mul|scalar_reduce|scalar_inv|scalar_add'
+# excursions are tolerated, flagged if mean|t| exceeds GATE_LENIENT_MEAN or any
+# single run exceeds GATE_LENIENT_MAX (see CLAUDE.md: jp_add_internal ~7.5 artefact).
+# Full labels, not substrings: `scalar_add` is intentionally ABSENT — the harness
+# emits no scalar_add dudect line, so listing it would falsely imply coverage.
+# (If scalar_add ever gets a dudect test, add its label here.)
+STRICT_RE='scalar_multiply_ct_internal|scalar_mul_internal|scalar_reduce|scalar_inv_internal'
 
 mkdir -p "$GATE_OUT"
 REPORT="$GATE_OUT/timing-report.txt"
@@ -77,7 +81,11 @@ microcode="$(grep -m1 microcode /proc/cpuinfo 2>/dev/null | cut -d: -f2- | tr -d
 kernel="$(uname -r 2>/dev/null || echo unknown)"
 cur_khz="$(cat /sys/devices/system/cpu/cpu${GATE_CORE:-0}/cpufreq/scaling_cur_freq 2>/dev/null || echo unknown)"
 src_rev="${GATE_SOURCE_REV:-$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
-npk_rev="${GATE_NIXPKGS_REV:-$(grep -o '"rev": "[a-f0-9]*"' "$ROOT/flake.lock" 2>/dev/null | head -1 | grep -oE '[a-f0-9]{7,}' | cut -c1-12 || echo unknown)}"
+# Parse the nixpkgs node's rev specifically (ruby+JSON — always available here),
+# not the first "rev" in flake.lock, which stops being nixpkgs the moment another
+# input with a rev is added.
+npk_rev="${GATE_NIXPKGS_REV:-$(ruby -rjson -e 'begin; print(JSON.parse(File.read(ARGV[0])).dig("nodes","nixpkgs","locked","rev").to_s[0,12]); rescue; end' "$ROOT/flake.lock" 2>/dev/null)}"
+npk_rev="${npk_rev:-unknown}"
 
 {
   echo "=========================================================================="
@@ -135,6 +143,15 @@ for cc in $GATE_COMPILERS; do
     log "  SKIPPED — staging the built extension into lib/ failed"
     rm -rf "$work"; continue
   fi
+  # Certify the TESTED artifact directly: confirm the staged .so (what rspec /
+  # ctgrind / dudect actually exercise) was compiled by $cc — vanilla-ext.sh
+  # only certifies a separately-compiled proxy object.
+  so_major="$(readelf -p .comment lib/secp256k1_native.so 2>/dev/null | grep -oE '(GCC:|clang version)[^0-9]*[0-9]+' | grep -oE '[0-9]+$' | head -1)"
+  cc_major="$("$cc" -dumpversion 2>/dev/null | cut -d. -f1)"
+  if [ -n "$cc_major" ] && [ "$so_major" != "$cc_major" ]; then
+    log "  SKIPPED — staged .so built by compiler major '$so_major', not the intended '$cc_major'"
+    rm -rf "$work"; continue
+  fi
   built=$((built + 1))
 
   cc_pass=1
@@ -179,13 +196,19 @@ for cc in $GATE_COMPILERS; do
     [ -n "$GATE_CORE" ] && pin="taskset -c $GATE_CORE chrt -f 99"
     runs_ok=0
     for run in $(seq 1 "$GATE_DUDECT_RUNS"); do
-      # Capture per run so a timeout/crash (non-zero from `step`) is DETECTED,
-      # not swallowed by a pipeline `|| true`. A run must exit 0 AND emit dudect
-      # lines to count — otherwise it contributes nothing and is not a pass.
-      if step $pin ./timing/timing_harness >"$work/run" 2>/dev/null \
-         && grep -q '^dudect:' "$work/run"; then
+      # Capture per run so a timeout/crash is DETECTED, not swallowed. CRUCIAL:
+      # timing_harness returns 1 whenever ANY op trips its OWN internal |t|>=4.5
+      # (e.g. jp_add_internal's documented ~7.5 artefact), so exit 0 AND 1 are
+      # both NORMAL completions — we re-derive PASS/FAIL from the t-values below,
+      # so the harness's own verdict is not the run-success signal. A real
+      # failure is a timeout (`timeout` → 124), a signal (>128), or no output.
+      step $pin ./timing/timing_harness >"$work/run" 2>/dev/null; hrc=$?
+      got=$(grep -c '^dudect:' "$work/run")
+      if { [ "$hrc" -eq 0 ] || [ "$hrc" -eq 1 ]; } && [ "$got" -gt 0 ]; then
         grep '^dudect:' "$work/run" >> "$work/dudect.raw"
         runs_ok=$((runs_ok + 1))
+      else
+        log "  dudect  : note — run $run discarded (harness exit $hrc, $got lines)"
       fi
     done
     if [ "$runs_ok" -eq 0 ]; then
@@ -197,7 +220,7 @@ for cc in $GATE_COMPILERS; do
       [ "$runs_ok" -lt "$GATE_DUDECT_RUNS" ] && \
         log "  dudect  : note — only $runs_ok/$GATE_DUDECT_RUNS runs produced output"
       # Aggregate per op: n_over threshold, max|t|, mean|t|; apply strict/lenient.
-      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v lmean="$GATE_LENIENT_MEAN" '
+      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v lmean="$GATE_LENIENT_MEAN" -v lmax="$GATE_LENIENT_MAX" '
         /^dudect:/ {
           label=$2; tv=""
           # dudect prints "t=%+9.4f": a standalone "t=" then the value for small
@@ -217,7 +240,11 @@ for cc in $GATE_COMPILERS; do
           for (l in n) {
             mean=sum[l]/n[l]
             isstrict = (l ~ strict)
-            if (isstrict) { fail = (ov[l]>0) } else { fail = (mean>lmean) }
+            # Lenient (operand-artefact) ops tolerate a marginal mean, but a
+            # single run over lmax is a real spike, not an artefact — do not let
+            # it be averaged away (lmax > the ~7.5 jp_add artefact, well below
+            # genuine-leak magnitudes of tens to hundreds).
+            if (isstrict) { fail = (ov[l]>0) } else { fail = (mean>lmean || mx[l]>lmax) }
             if (fail) anyfail=1
             printf "    %-28s runs=%d over%.1f=%d max|t|=%.2f mean|t|=%.2f %s%s\n",
                    l, n[l], thr, ov[l]+0, mx[l], mean,

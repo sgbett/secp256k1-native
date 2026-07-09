@@ -60,7 +60,14 @@ in
     path = gateTools;
     script = ''
       set -u
-      trap 'sync; umount /mnt 2>/dev/null || true; systemctl poweroff' EXIT
+      # Power off only when we're sure the report is safe. If the operator
+      # expected a USB report but it didn't persist (mount failed / read-only /
+      # full), leave the box UP so the tmpfs copy can be recovered — an
+      # unattended appliance that powers off having lost the evidence is worse
+      # than one that waits.
+      no_poweroff=""
+      trap 'sync; umount /mnt 2>/dev/null || true; [ -n "$no_poweroff" ] || systemctl poweroff' EXIT
+      warn() { echo "timing-gate: $*" | tee /dev/tty1 /dev/console 2>/dev/null || true; }
 
       # 1. Writable copy of the baked source (store is read-only).
       work=/run/timing-gate/src
@@ -69,13 +76,21 @@ in
       chmod -R u+w "$work"
       cd "$work"
 
-      # 2. Results sink: the Ventoy exFAT data partition (label "Ventoy"). Fall
-      #    back to the tmpfs if the stick isn't present (a bare VM run) — the
-      #    report still prints to tty1/serial either way.
+      # 2. Results sink: the Ventoy exFAT data partition (label "Ventoy"). No
+      #    stick present ⇒ a bare VM run ⇒ tmpfs + poweroff is expected. Stick
+      #    present but unmountable ⇒ operator error ⇒ tmpfs + STAY UP.
       stamp="$(date -u +%Y%m%d-%H%M%S)"
       out=/run/timing-gate/out-$stamp
+      ventoy_expected=""
       if dev=$(blkid -L Ventoy 2>/dev/null); then
-        mkdir -p /mnt && mount "$dev" /mnt 2>/dev/null && out=/mnt/secp256k1-timing-$stamp
+        ventoy_expected=1
+        mkdir -p /mnt
+        if mount "$dev" /mnt 2>/dev/null; then
+          out=/mnt/secp256k1-timing-$stamp
+        else
+          warn "ERROR: Ventoy stick present but mount failed — results go to tmpfs; NOT powering off so they can be recovered."
+          no_poweroff=1
+        fi
       fi
       mkdir -p "$out"
 
@@ -89,10 +104,19 @@ in
         bash nix/gate.sh
       gate_rc=$?
 
-      # The EXIT trap syncs, unmounts, and powers off regardless. Exit with the
-      # gate's status (no `|| true`) so `systemctl status timing-gate` and the
-      # journal reflect PASS/FAIL — a detected leak must not read as a clean
-      # service success.
+      # 4. Confirm the report actually landed before powering off. A Ventoy write
+      #    can fail silently if the partition is read-only or full — verify the
+      #    report exists and is non-empty on the intended sink; if not, stay up.
+      sync
+      if [ -n "$ventoy_expected" ] && [ -z "$no_poweroff" ] && [ ! -s "$out/timing-report.txt" ]; then
+        warn "ERROR: expected the report on the Ventoy stick but $out/timing-report.txt is missing/empty (read-only or full?) — NOT powering off."
+        no_poweroff=1
+      fi
+
+      # The EXIT trap syncs, unmounts, and (unless no_poweroff) powers off.
+      # Exit with the gate's status (no `|| true`) so `systemctl status
+      # timing-gate` / the journal reflect PASS/FAIL — a detected leak must not
+      # read as a clean service success.
       exit "$gate_rc"
     '';
   };

@@ -62,36 +62,19 @@ command -v ruby      >/dev/null 2>&1 || { echo "vanilla-ext: FATAL — ruby not 
 [ -f "$SRC" ]     || { echo "vanilla-ext: FATAL — source not found: $SRC" >&2; exit 2; }
 [ -f "$CHECKER" ] || { echo "vanilla-ext: FATAL — checker not found: $CHECKER" >&2; exit 2; }
 
-# Ruby header dirs — build against the REAL headers so codegen is shipping-shape.
-RUBY_HDR="$(ruby -rrbconfig -e 'print RbConfig::CONFIG["rubyhdrdir"]' 2>/dev/null)"
-RUBY_ARCH_HDR="$(ruby -rrbconfig -e 'print RbConfig::CONFIG["rubyarchhdrdir"]' 2>/dev/null)"
-if [ -z "$RUBY_HDR" ] || [ -z "$RUBY_ARCH_HDR" ]; then
-  echo "vanilla-ext: FATAL — Ruby header dirs not discoverable (rubyhdrdir/rubyarchhdrdir empty)" >&2
-  exit 2
-fi
-
-# When the caller doesn't supply OUT, use a private temp dir and clean it up on
-# exit — otherwise repeated invocations (the gate calls this per compiler) leak
-# a /tmp dir each. A caller that supplies OUT owns that path's lifecycle.
-if [ -z "${OUT:-}" ]; then
-  _vtmp="$(mktemp -d)"
-  OUT="$_vtmp/jacobian.vanilla.o"
-  trap 'rm -rf "$_vtmp"' EXIT
-fi
-mkdir -p "$(dirname "$OUT")"
-
-# Flags mirror security/Makefile's jacobian_ct.o target (the single source of
-# truth for the CT compile line): -O2 as shipped, -g for objdump -dl line info,
-# -fno-stack-protector to strip the canary epilogue artefact from the invariant.
-CFLAGS=(-O2 -g -Wall -std=c99 -fcommon -fno-stack-protector
-        -I"$RUBY_HDR" -I"$RUBY_ARCH_HDR" -I"$ROOT/ext/secp256k1_native")
+# Build the CT object via security/Makefile's `jacobian_ct.o` target — the
+# single source of truth for the CT compile line (flags + real Ruby headers).
+# Reusing it means a CT-relevant flag change there propagates here (and stays in
+# lock-step with CI / run-checks.sh) rather than drifting from a hand-copied
+# CFLAGS. NIX_HARDENING_ENABLE="" certifies the vanilla, stock-shaped binary.
+OBJ="$ROOT/security/jacobian_ct.o"
+trap 'rm -f "$OBJ"' EXIT
 
 echo "== vanilla-ext: building CT object =="
-echo "   CC   : $CC ($($CC --version 2>/dev/null | head -1))"
-echo "   flags: -O2 vanilla (NIX_HARDENING_ENABLE=\"\")"
-echo "   out  : $OUT"
-if ! NIX_HARDENING_ENABLE="" "$CC" "${CFLAGS[@]}" -c "$SRC" -o "$OUT"; then
-  echo "vanilla-ext: FAIL — compile failed" >&2
+echo "   CC  : $CC ($($CC --version 2>/dev/null | head -1))"
+echo "   via : make -C security jacobian_ct.o (vanilla, NIX_HARDENING_ENABLE=\"\")"
+if ! NIX_HARDENING_ENABLE="" make -C "$ROOT/security" jacobian_ct.o CC="$CC" >/dev/null; then
+  echo "vanilla-ext: FAIL — compile failed (make -C security jacobian_ct.o CC=$CC)" >&2
   exit 1
 fi
 
@@ -99,21 +82,20 @@ rc=0
 
 # --- 1. CC-actually-took -----------------------------------------------------
 # Read the compiler stamp from the ELF .comment string table (readelf -p prints
-# it cleanly; objdump -s interleaves a hex column that pollutes a naive grep).
-# Debian stamps "GCC: (Debian 14.2.0-...) 14.2.0"; nix stamps "GCC: (GNU) 14.3.0"
-# — take the first dotted version after "GCC:".
+# it cleanly). gcc stamps "GCC: (…) X.Y.Z"; clang stamps "clang version X.Y.Z" —
+# match either so a clang compiler-under-test isn't reported as a spurious FAIL.
 cc_major="$("$CC" -dumpversion 2>/dev/null | cut -d. -f1)"
-obj_gcc="$(readelf -p .comment "$OUT" 2>/dev/null | grep -oE 'GCC:[^0-9]*[0-9]+\.[0-9]+(\.[0-9]+)?' | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
-obj_major="${obj_gcc%%.*}"
+obj_ver="$(readelf -p .comment "$OBJ" 2>/dev/null | grep -oE '(GCC:|clang version)[^0-9]*[0-9]+\.[0-9]+(\.[0-9]+)?' | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+obj_major="${obj_ver%%.*}"
 if [ -n "$obj_major" ] && [ "$obj_major" = "$cc_major" ]; then
-  echo "   [1] CC-took        PASS — .comment gcc $obj_gcc matches CC major $cc_major"
+  echo "   [1] CC-took        PASS — .comment $obj_ver matches CC major $cc_major"
 else
-  echo "   [1] CC-took        FAIL — .comment gcc '$obj_gcc' (major '$obj_major') != CC major '$cc_major'" >&2
+  echo "   [1] CC-took        FAIL — .comment '$obj_ver' (major '$obj_major') != CC major '$cc_major'" >&2
   rc=1
 fi
 
 # --- 2. Assembly-invariant (branchlessness) ----------------------------------
-if ruby "$CHECKER" "$OUT"; then
+if ruby "$CHECKER" "$OBJ"; then
   echo "   [2] CT-invariant   PASS — ladder + jp_add_internal branchless"
 else
   echo "   [2] CT-invariant   FAIL — secret-dependent branch/cmov in CT codegen (see above)" >&2
