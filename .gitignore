@@ -25,3 +25,7 @@ docs/reference/
 
 # docs/Gemfile.lock is committed (deployable site, not a library)
 !docs/Gemfile.lock
+
+# nix/reference-gems/Gemfile.lock is committed: it pins the offline gem set
+# baked into the reference-machine ISO (bundlerEnv needs it tracked)
+!nix/reference-gems/Gemfile.lock

@@ -42,6 +42,15 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# How to invoke Ruby dev tools (rake/rspec). devShell: "bundle exec" against the
+# root Gemfile (gemspec puts lib/ on the load path). ISO: "" — the offline
+# bundlerEnv already exposes rake/rspec on PATH. Single-dash default so an
+# explicit empty GATE_RUBY_EXEC is honoured.
+RUBY_EXEC="${GATE_RUBY_EXEC-bundle exec}"
+# Make require 'secp256k1' / 'secp256k1_native' resolve without relying on a
+# gemspec on the load path (the minimal ISO gemset has none).
+export RUBYLIB="$ROOT/lib${RUBYLIB:+:$RUBYLIB}"
+
 GATE_COMPILERS="${GATE_COMPILERS:-gcc}"
 GATE_CORE="${GATE_CORE:-}"
 GATE_DUDECT_RUNS="${GATE_DUDECT_RUNS:-20}"
@@ -90,6 +99,7 @@ npk_rev="${GATE_NIXPKGS_REV:-$(grep -o '"rev": "[a-f0-9]*"' "$ROOT/flake.lock" 2
 sync "$REPORT" 2>/dev/null || true
 
 overall_rc=0
+built=0  # how many compilers actually built + ran the CT gates (not SKIPPED)
 
 for cc in $GATE_COMPILERS; do
   ccver="$("$cc" --version 2>/dev/null | head -1 || echo 'unknown')"
@@ -101,7 +111,7 @@ for cc in $GATE_COMPILERS; do
   if ! command -v "$cc" >/dev/null 2>&1; then
     log "  SKIPPED — compiler '$cc' not on PATH"; rm -rf "$work"; continue
   fi
-  bundle exec rake clobber >/dev/null 2>&1
+  $RUBY_EXEC rake clobber >/dev/null 2>&1
   mkdir -p "$GATE_OUT"  # defensive: `rake clobber` wipes tmp/; never let it eat the results dir
   if ! ( cd ext/secp256k1_native \
          && NIX_HARDENING_ENABLE="" step ruby extconf.rb \
@@ -111,6 +121,7 @@ for cc in $GATE_COMPILERS; do
     rm -rf "$work"; continue
   fi
   cp ext/secp256k1_native/secp256k1_native.so lib/secp256k1_native.so
+  built=$((built + 1))
 
   cc_pass=1
 
@@ -125,7 +136,7 @@ for cc in $GATE_COMPILERS; do
   [ "$codegen" = PASS ] && log "  codegen : PASS (vanilla -O2, CC-took, branchless)"
 
   # --- 4. rspec --------------------------------------------------------------
-  if step bundle exec rspec >"$work/rspec.log" 2>&1; then
+  if step $RUBY_EXEC rspec >"$work/rspec.log" 2>&1; then
     rspec="PASS"
   else
     rspec="FAIL"; cc_pass=0
@@ -137,10 +148,12 @@ for cc in $GATE_COMPILERS; do
   if step make -C security ctgrind CC="$cc" >"$work/ctg.log" 2>&1 \
      && step valgrind -q --error-exitcode=1 ./security/ctgrind_harness >>"$work/ctg.log" 2>&1; then
     ctgrind="PASS"
+    log "  ctgrind : PASS"
   else
     ctgrind="FAIL"; cc_pass=0
+    log "  ctgrind : FAIL — last lines:"
+    tail -6 "$work/ctg.log" | sed 's/^/      /' | tee -a "$REPORT" >/dev/null
   fi
-  log "  ctgrind : $ctgrind"
 
   # --- 6. dudect timing, N runs ----------------------------------------------
   make -C timing clean >/dev/null 2>&1
@@ -186,6 +199,13 @@ for cc in $GATE_COMPILERS; do
 done
 
 log "--------------------------------------------------------------------------"
-log "GATE: $([ $overall_rc -eq 0 ] && echo PASS || echo FAIL)  (report: $REPORT)"
-bundle exec rake clobber >/dev/null 2>&1 || true
+# An all-SKIPPED sweep verified nothing — never report that as a clean PASS
+# (fail-closed spirit): if not one compiler built, the run is inconclusive.
+if [ "$built" -eq 0 ]; then
+  log "GATE: NO COMPILERS BUILT — nothing verified. Check the toolchain (ruby/gcc on PATH)."
+  overall_rc=2
+else
+  log "GATE: $([ $overall_rc -eq 0 ] && echo PASS || echo FAIL)  ($built/$(echo $GATE_COMPILERS | wc -w) compiler(s) verified; report: $REPORT)"
+fi
+$RUBY_EXEC rake clobber >/dev/null 2>&1 || true
 exit $overall_rc
