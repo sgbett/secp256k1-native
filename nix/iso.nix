@@ -161,7 +161,7 @@ in
     users.motd = ''
       secp256k1 reference machine — DEBUG boot: network + sshd up, sweep NOT run.
       Run the gate by hand from a writable copy of the read-only baked source:
-        rm -rf /root/src && cp -a /etc/secp256k1-native/source /root/src && chmod -R u+w /root/src && cd /root/src
+        rm -rf /root/src && cp -aL /etc/secp256k1-native/source /root/src && chmod -R u+w /root/src && cd /root/src
         GATE_RUBY_EXEC="" GATE_CORE=15 GATE_OUT=/root/out bash nix/gate.sh
     '';
   };
