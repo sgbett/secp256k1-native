@@ -2,9 +2,7 @@
 # reference-machine ISO (see nix/iso.nix → specialisation.debug).
 #
 # Add one public key per line, then rebuild the ISO (`nix build .#iso`) and
-# re-flash the stick. Until a key is present here, key-based root SSH is
-# effectively disabled (secure default) — use the autologin root console on the
-# box (grab the DHCP IP with `ip a`, or `passwd` to set a temporary password).
-#
-# Example:
-#   ssh-ed25519 AAAAC3Nza... simon@macbook
+# re-flash the stick. Key-only root SSH (PermitRootLogin=prohibit-password);
+# with no key here it's effectively disabled — use the autologin root console.
+
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDLI1nqsUQRLrACY32nEiHhpYF1bF94qwabbNoqF4XSzd0BG3f+be6wRNOIyEfT3IDGELLekUC1lscH4fIQYq2JUgCjXnS0wTg1U9dOKaGONlXH4dsS5x0zFjEzM+DCk9pqynbDW0FUhJ2ilLkhmeIfPzN0eYMLEBHCMK2GMxwgiMEYtncUcLSDhYD7xPVm2N+zmjvUrU36C9ogGGC6T6fQm2EUlNGuTQWIIIsif2LaFWqwc971a+9cwtmkDh9va7IjpsXr6z87z3vDmnrSVESyr6RGDr/ytbXzl1rzDJ3ni0xmRBPAgs3x0rpvqiMhnq1s2KkW9A0qhasCYDC9UBIAeshDQoLMuB+iJG3MhsEycg+6NLj5fTJtOw+coDfYLMq5PVD+tVlHjh/w4vr/WYQlJOY2D619mKvmRvrF95fZXcOck0+U5I5up0qlWx8FY1U1xQIeFlZivfYHTTadaDTEN5FPopMCbrP2f3kqdZB4bdl6zHBkOJwHsBt5K6FK/MRj/TZx/HMh5paiPqn9vbb8Krh3XzexIwXRSh7M2FCdi+FF4fcFP3AoaW2abIDdM7vMaxAsHEMGcH1FpMY54o0OKiP8LEhYBUSB0DnsSz3eZDLqZZqTs0XPQymIpoEowiC3QRwMNvNJdiD+Lc1uwUsneJRewkoS7vEzxnLyzE/F+Q== simon@macbook
