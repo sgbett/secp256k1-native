@@ -139,9 +139,12 @@ in
   # stay up, and the box does NOT power off — SSH in and drive `bash nix/gate.sh`
   # by hand, or tune sysfs and re-run.
   #
-  # SSH access is KEY-ONLY: add your public key(s) to nix/debug-ssh-authorized-keys
-  # and rebuild. Until you do, the autologin root console is the way in (grab the
-  # DHCP IP with `ip a`, or set a password with `passwd`).
+  # SSH access is KEY-ONLY (PermitRootLogin=prohibit-password): add your public
+  # key(s) to nix/debug-ssh-authorized-keys and rebuild. Without a baked key,
+  # log in on the autologin root console (grab the DHCP IP with `ip a`); to
+  # enable SSH ad-hoc without a rebuild, append a key to
+  # /root/.ssh/authorized_keys there. (Password SSH is off, so `passwd` only
+  # helps the local console, not SSH.)
   specialisation.debug.configuration = {
     system.nixos.tags = [ "debug" ];
     # No unattended sweep on this entry.
@@ -153,7 +156,13 @@ in
     };
     users.users.root.openssh.authorizedKeys.keyFiles = [ ./debug-ssh-authorized-keys ];
     networking.hostName = lib.mkForce "secp256k1-debug";
-    # A visible hint on the console about the mode.
-    users.motd = "secp256k1 reference machine — DEBUG boot: network + sshd up, sweep NOT run. `bash /etc/secp256k1-native/source/nix/gate.sh` to run the gate by hand.";
+    # Console hint. NB: the baked source is a READ-ONLY nix store copy, so the
+    # gate (which clobbers + builds in-tree) must run from a WRITABLE copy.
+    users.motd = ''
+      secp256k1 reference machine — DEBUG boot: network + sshd up, sweep NOT run.
+      Run the gate by hand from a writable copy of the read-only baked source:
+        cp -a /etc/secp256k1-native/source /root/src && chmod -R u+w /root/src && cd /root/src
+        GATE_RUBY_EXEC="" GATE_CORE=15 GATE_OUT=/root/out bash nix/gate.sh
+    '';
   };
 }
