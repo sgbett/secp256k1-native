@@ -1,0 +1,20 @@
+# frozen_string_literal: true
+#
+# Minimal gem set for the reference-machine gate (Phase 5 of
+# plans/61-reference-machine-nix.md). NOT the repo's dev bundle — the on-ISO
+# gate only needs rake (`rake clobber`), rake-compiler (the repo Rakefile
+# `require`s it), and rspec. bundix turns the committed Gemfile.lock into
+# gemset.nix so `pkgs.bundlerEnv` can bake these gems into the ISO for a fully
+# OFFLINE run. Docs/lint gems (rubocop, yard, yard-markdown) and their native
+# deps (psych/libyaml) are deliberately excluded to keep the ISO closure — and
+# the attack surface — small (principle 3).
+#
+# The gate does not rely on a gemspec here (there is none): it exports
+# RUBYLIB=<source>/lib so `require 'secp256k1'` / 'secp256k1_native' resolve.
+#
+# Regenerate after a bump:  cd nix/reference-gems && bundle lock && bundix
+source 'https://rubygems.org'
+
+gem 'rake'
+gem 'rake-compiler'
+gem 'rspec'

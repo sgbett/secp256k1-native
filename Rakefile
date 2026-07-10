@@ -69,13 +69,37 @@ namespace :docs do
     inject_reference_frontmatter(output_dir)
   end
 
-  desc 'Build the Jekyll docs site (runs docs:generate first)'
-  task build: :generate do
+  # Drift-proof config embeds: copy the REAL reference-machine files into
+  # _includes so docs/reference-machine.md can {% include %} them verbatim.
+  # Regenerated on every docs build, so the rendered doc can never drift from
+  # what ships. The copies under _includes/reference-machine/ are gitignored.
+  REFERENCE_MACHINE_EMBEDS = %w[
+    flake.nix
+    nix/reference-machine.nix
+    nix/iso.nix
+    nix/gate.sh
+    nix/vanilla-ext.sh
+  ].freeze
+
+  desc 'Copy the reference-machine config into _includes for drift-proof embeds'
+  task :embed do
+    require 'fileutils'
+    dest = 'docs/_includes/reference-machine'
+    FileUtils.rm_rf(dest)
+    FileUtils.mkdir_p(dest)
+    REFERENCE_MACHINE_EMBEDS.each do |src|
+      FileUtils.cp(src, File.join(dest, File.basename(src)))
+    end
+    puts "docs:embed -- copied #{REFERENCE_MACHINE_EMBEDS.size} config file(s) into #{dest}"
+  end
+
+  desc 'Build the Jekyll docs site (runs docs:generate + docs:embed first)'
+  task build: %i[generate embed] do
     _jekyll 'jekyll', 'build'
   end
 
   desc 'Serve the Jekyll docs locally with livereload'
-  task :serve do
+  task serve: %i[generate embed] do
     _jekyll 'jekyll', 'serve', '--livereload'
   end
 

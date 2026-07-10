@@ -23,11 +23,11 @@ The ISO bakes: the pinned `nixpkgs` (⇒ every `gccN`), the quiet-machine config
 
 **The single most important correctness requirement.** The gem ships as *source* and is compiled on each user's machine by their gcc at `-O2` (`extconf.rb` appends it). The reference machine must certify *that* binary. But NixOS builds everything through nixpkgs' cc-wrapper, which injects hardening flags (`-fstack-protector-strong`, `-D_FORTIFY_SOURCE`, …). If the ISO builds with the *wrapped* gcc, we certify a **nix-specific** binary — and worse, nix hardening could *mask* a branch a stock build would emit, giving a **false pass** while a stock user still leaks.
 
-- **Requirement:** the CT-critical functions' `-O2` codegen must be **identical to a stock `gcc -O2`** build (no injected flag altering select/branch codegen).
-- **Mechanism:** build via the nix `gccN` wrapper with hardening disabled (`NIX_HARDENING_ENABLE=""` / `hardeningDisable = ["all"]`) + `-O2`. The CT functions are pure `uint64`/`__uint128` arithmetic with no libc in the hot path, so the wrapper's residual `-B`/`-idirafter` paths don't touch their codegen.
-- **Proof (two checks):**
+- **Requirement:** the CT-critical functions' `-O2` codegen must be **branchless** (no secret-dependent `je`/`jne`/`cmov`) and a **stock `gcc -O2`** build of the same major must be too — not necessarily byte-identical (gcc *minor* bumps legitimately reshuffle instructions), but equivalent in the security property.
+- **Mechanism:** build via the nix `gccN` wrapper with hardening disabled (`NIX_HARDENING_ENABLE=""` / `hardeningDisable = ["all"]`) + `-O2`. **Confirmed empirically necessary** (Phase 3, gcc 14.3.0): the nixos-25.05 default `NIX_HARDENING_ENABLE` (`bindnow format fortify fortify3 pic relro stackclashprotection stackprotector strictoverflow zerocallusedregs`) *does* alter CT-function codegen — `scalar_multiply_ct_internal` 80 insns hardened vs 73 vanilla; `jp_add_internal` 347 vs 323 (benign register-zeroing + stack probes, both still branchless). So the hardened nix build is **not** the stock user's binary; disabling hardening is what makes them equivalent. With hardening off, the wrapper's residual `-B`/`-idirafter` paths don't touch the pure-arithmetic CT codegen.
+- **Proof (two checks) — mechanism DONE (`nix/vanilla-ext.sh`, `nix/codegen-equivalence.sh`):**
   - **Invariant (reuse existing tooling):** run `security/check-ct-assembly.rb` + ctgrind on the nix-built binary per compiler — no secret-dependent `je`/`jne`/`cmov` at the CT lines.
-  - **Equivalence (the new bit):** `objdump` the CT functions from the nix build and diff against a **stock `gcc -O2`** build of the same source + same gcc major (reference produced in a plain Debian/Ubuntu container, golden committed). Passing on nix must ⇒ passing on stock.
+  - **Equivalence (invariant-result, not byte golden):** run the assembly-invariant under *both* the pinned nix `gccN` and a **stock distro `gccN`** of the same major (`nix/stock-attest.sh`, in a `gcc:<major>` Debian container); both must pass — "passing on nix ⇒ passing on stock". A byte golden was rejected as brittle across minors (a minor-driven codegen change is *signal*, investigated ad hoc). **Defence in depth:** the two-symbol invariant is paired with **whole-binary ctgrind** on the stock build too, so a secret-dependent branch a stock gcc might outline into a *new* symbol (which the invariant wouldn't inspect) is still caught. *Validated: nix gcc 14.3.0, and stock gcc:15 (invariant + ctgrind) via `nix/stock-attest.sh`.*
 - **Also verify the CC actually took:** the extension is built by Ruby's mkmf/RbConfig CC — the gate must confirm each build really used the intended `gccN` (from the emit compile line / the binary), not silently fell back to the ISO's ruby default. (The Phase-1 shellHook already prints RbConfig CC for exactly this trap.)
 
 ## Repo layout (all additive — zero impact on `gem install` / `bundle`)
@@ -37,7 +37,9 @@ flake.lock       # THE pinned nixpkgs — provides every gccN AND is the "known-
 nix/
   reference-machine.nix   # quiet-machine module (isolcpus/irqaffinity/governor/boost/SMT, no-net, autologin)
   iso.nix                 # installation-cd-minimal → live ISO; bakes source; runs the gate as a service
-  vanilla-ext.nix         # builds the extension at vanilla gcc -O2 (hardeningDisable) + codegen proof
+  vanilla-ext.sh          # DONE — build the CT object at vanilla gcc -O2 (hardening off) + CC-took + assembly-invariant
+  codegen-equivalence.sh  # DONE — dev-time: invariant holds under nix gccN (in-env, per CC)
+  stock-attest.sh         # DONE — dev-time: stock gcc:<major> in Docker passes invariant + whole-binary ctgrind
   gate.sh                 # the gate: loop gccN → build+verify+rspec+ctgrind+dudect+stamp → report → halt
 docs/reference-machine.md # philosophy + build/test logistics + embedded config (Jekyll {% include %})
 ```
@@ -55,8 +57,8 @@ Boot-level state, parameterised (isolated core, AMD/Intel), shared by the ISO (a
 - **No network** (source is baked, results go to USB — kills DHCP/NTP noise and surface), no X, minimal services, autologin as fallback.
 - `mitigations=` left at **default** (mirror what users run) — documented.
 
-### Phase 3 — Vanilla-`gcc` extension build (`nix/vanilla-ext.nix`) — load-bearing
-Implement the non-negotiable: build with `gccN` at vanilla `-O2` (hardeningDisable), the CC-actually-took check, the assembly-invariant check (reuse `security/`), and the objdump-equivalence diff vs a stock `gcc -O2` golden. Prove this in the devShell *before* wrapping it in an ISO — it's the difference between certifying the real binary and a false pass.
+### Phase 3 — Vanilla-`gcc` extension build (`nix/vanilla-ext.sh` + `nix/codegen-equivalence.sh`) — load-bearing — **DONE (mechanism), validated in devShell**
+Implement the non-negotiable: build with `gccN` at vanilla `-O2` (hardening off), the CC-actually-took check (`.comment` major via `readelf`), the assembly-invariant check (reuse `security/check-ct-assembly.rb`), and the stock-equivalence attestation (invariant under nix `gccN` *and* stock distro `gccN`). Proven in the devShell *before* wrapping it in an ISO — the difference between certifying the real binary and a false pass. **Validated: nix gcc 14.3.0 + stock gcc 14.4.0/15.3.0 all branchless.** Wiring into the gate (build the gem with hardening off) and widening the nix compiler set beyond the pinned `gcc` is Phase 4/5.
 
 ### Phase 4 — The gate (`nix/gate.sh`, `apps.timing-gate`) — the automation core
 One script, two contexts — the devShell (dev iteration) and the ISO service (the authoritative bare-metal run). Loops the compiler set; **per gcc**:
@@ -82,7 +84,10 @@ One script, two contexts — the devShell (dev iteration) and the ISO service (t
 - **Widen:** add gcc14, 13, … toward 9.5 to the set (one-line change). Best-effort — a gcc that fights the dep closure is recorded `SKIPPED`, not a blocker.
 
 ### Phase 8 (later, optional) — CI unification
-Expose the **deterministic** gates (rspec, ctgrind, ASan, dfuzz, the codegen-equiv check) as flake `checks` so GitHub Actions runs them reproducibly via `nix flake check`; dudect stays bare-metal-only. One toolchain definition serves CI and the ISO.
+Two layers, both on GitHub's **native x86_64** runners (which also sidestep the ctgrind-under-emulation flakiness seen validating this in Docker-on-aarch64 — valgrind runs natively there):
+- **Cheap config guard, every PR:** `nix build --dry-run .#iso` (≈ `nix eval .#…iso.drvPath`) proves the whole `nixosConfiguration` still *evaluates* — catches module/option/lockfile breakage (the class hit during Phase 5) in ~1 min, no closure download.
+- **Deterministic gate, reproducibly:** expose the deterministic checks (rspec, ctgrind, ASan, dfuzz, the codegen-equiv check) as flake `checks` for `nix flake check`, and/or **add a `GATE_SKIP_DUDECT` mode to `gate.sh`** — a small change; today `GATE_DUDECT_RUNS=0` fails closed (0 runs ⇒ no output ⇒ FAIL) rather than skipping — so CI can run the "dry run": build → vanilla-codegen-cert → rspec → ctgrind across the compiler set, **dudect skipped**. dudect stays bare-metal-only. One toolchain definition serves CI and the ISO.
+- Optionally a heavier real `nix build .#iso` (needs nix-store caching — Cachix / magic-nix-cache) on release/nightly to prove the image actually assembles.
 
 ## Build & test logistics
 - **Build (from macOS/aarch64):** the ISO is `x86_64-linux` — **can't build natively**. Best→fallback: nix **`linux-builder`** (nix-darwin VM backend, cleanest); a **Linux box** as remote builder; **Docker** (nix-in-linux) — ISO assembly is squashfs+xorriso, **no KVM needed**. `nix build .#iso` → `result/iso/*.iso`.
