@@ -76,7 +76,7 @@ in
       #    (The `debug` boot-menu entry skips the sweep and leaves them up for
       #    interactive SSH access instead.)
       systemctl stop sshd.service systemd-networkd.service systemd-timesyncd.service \
-                     NetworkManager.service 'wpa_supplicant*' 2>/dev/null || true
+                     NetworkManager.service dhcpcd.service 'wpa_supplicant*' 2>/dev/null || true
 
       # 1. Writable copy of the baked source (store is read-only).
       work=/run/timing-gate/src
@@ -161,7 +161,7 @@ in
     users.motd = ''
       secp256k1 reference machine — DEBUG boot: network + sshd up, sweep NOT run.
       Run the gate by hand from a writable copy of the read-only baked source:
-        cp -a /etc/secp256k1-native/source /root/src && chmod -R u+w /root/src && cd /root/src
+        rm -rf /root/src && cp -a /etc/secp256k1-native/source /root/src && chmod -R u+w /root/src && cd /root/src
         GATE_RUBY_EXEC="" GATE_CORE=15 GATE_OUT=/root/out bash nix/gate.sh
     '';
   };
