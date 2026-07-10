@@ -25,7 +25,9 @@ in
   # A minimal live ISO (installation-cd-minimal) as the base image.
   imports = [ "${modulesPath}/installer/cd-dvd/installation-cd-minimal.nix" ];
 
-  # Turn on the quiet-machine boot state (isolcpus, freq pin, no network, …).
+  # Turn on the quiet-machine boot state (isolcpus, freq pin, SMT off, …).
+  # (It doesn't disable networking — the sweep service stops the network daemons
+  # before measuring; see below.)
   referenceMachine.enable = true;
   # referenceMachine.isolatedCore / .cpuVendor default to 15 / amd — override per
   # box here when the real hardware is known.
@@ -70,7 +72,7 @@ in
       warn() { echo "timing-gate: $*" | tee /dev/tty1 /dev/console 2>/dev/null || true; }
 
       # 0. Quiet: this is the UNATTENDED sweep, so stop the network + ssh daemons
-      #    the base image starts — DHCP/NTP/ssh activity is measurement noise.
+      #    that the base image starts — DHCP/NTP/ssh activity is measurement noise.
       #    (The `debug` boot-menu entry skips the sweep and leaves them up for
       #    interactive SSH access instead.)
       systemctl stop sshd.service systemd-networkd.service systemd-timesyncd.service \

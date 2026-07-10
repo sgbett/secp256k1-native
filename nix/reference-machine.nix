@@ -3,8 +3,13 @@
 # Quiet-machine NixOS module for the timing-verification reference machine
 # (Phase 2 of plans/61-reference-machine-nix.md). Boot-level state that makes
 # the dudect pre-tag gate reproducible: one isolated CPU core with no scheduler
-# / IRQ / RCU noise, pinned frequency (no DVFS/turbo jitter), SMT off, and no
-# network. Imported by nix/iso.nix; also usable for a persistent box later.
+# / IRQ / RCU noise, pinned frequency (no DVFS/turbo jitter), and SMT off.
+# Imported by nix/iso.nix; also usable for a persistent box later.
+#
+# NB: this module does NOT disable networking — network *quiet during the
+# measurement* is the sweep service's job (it stops the network daemons right
+# before measuring; see nix/iso.nix), which lets the debug boot entry keep the
+# network up for SSH without fighting an mkForce here.
 #
 # Why boot-level: the quiet state is a property of the kernel command line and
 # early sysfs, NOT of userspace. That is exactly why one boot can sweep every
