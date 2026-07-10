@@ -9,7 +9,7 @@
 # Prototype: gcc15 only (gccSet in flake.nix). Widen the set once it boots on
 # bare metal (Phase 7). The measurement is meaningful ONLY on quiet bare metal —
 # a VM/Docker run validates the boot→sweep→report→halt AUTOMATION, not timing.
-{ config, lib, pkgs, modulesPath, refSource, gateGems, gccSet, gateTools, ... }:
+{ config, lib, pkgs, modulesPath, refSource, gateGems, gccSet, gateTools, valgrindCFlags, ... }:
 
 let
   isolatedCore = config.referenceMachine.isolatedCore;
@@ -57,6 +57,10 @@ in
       StandardError = "tty";
       TTYPath = "/dev/tty1";
     };
+    # The ctgrind build needs <valgrind/memcheck.h> from valgrind's `dev` output,
+    # which isn't on the default include path (see valgrindCFlags in flake.nix).
+    # A systemd service gets a clean env, so set it here explicitly.
+    environment.NIX_CFLAGS_COMPILE = valgrindCFlags;
     # gateTools already provides util-linux (mount/umount/blkid) and coreutils
     # (sync); no need to re-add them. Keep the PATH minimal (principle 3).
     path = gateTools;
@@ -162,7 +166,7 @@ in
       secp256k1 reference machine — DEBUG boot: network + sshd up, sweep NOT run.
       Run the gate by hand from a writable copy of the read-only baked source:
         rm -rf /root/src && cp -aL /etc/secp256k1-native/source /root/src && chmod -R u+w /root/src && cd /root/src
-        GATE_RUBY_EXEC="" GATE_CORE=15 GATE_OUT=/root/out bash nix/gate.sh
+        NIX_CFLAGS_COMPILE="${valgrindCFlags}" GATE_RUBY_EXEC="" GATE_CORE=15 GATE_OUT=/root/out bash nix/gate.sh
     '';
   };
 }
