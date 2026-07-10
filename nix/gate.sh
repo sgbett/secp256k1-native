@@ -87,6 +87,24 @@ src_rev="${GATE_SOURCE_REV:-$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null 
 npk_rev="${GATE_NIXPKGS_REV:-$(ruby -rjson -e 'begin; print(JSON.parse(File.read(ARGV[0])).dig("nodes","nixpkgs","locked","rev").to_s[0,12]); rescue; end' "$ROOT/flake.lock" 2>/dev/null)}"
 npk_rev="${npk_rev:-unknown}"
 
+# --- machine-state diagnostics -----------------------------------------------
+# Stamp what the quiet-machine config ACTUALLY did, so a single bare-metal run
+# reveals a knob that didn't take (e.g. isolcpus wrong for this CPU, boost still
+# on) — instead of a silent physical round-trip. All best-effort ("n/a" off the
+# real box). $mc = the isolated (measurement) core.
+mc="${GATE_CORE:-0}"
+ms_cmdline="$(cat /proc/cmdline 2>/dev/null || echo unknown)"
+ms_isolated="$(cat /sys/devices/system/cpu/isolated 2>/dev/null)"; ms_isolated="${ms_isolated:-<none>}"
+ms_online="$(cat /sys/devices/system/cpu/online 2>/dev/null || echo unknown)"
+ms_smt="$(cat /sys/devices/system/cpu/smt/control 2>/dev/null || echo n/a)"
+ms_gov="$(cat /sys/devices/system/cpu/cpu$mc/cpufreq/scaling_governor 2>/dev/null || echo n/a)"
+ms_min="$(cat /sys/devices/system/cpu/cpu$mc/cpufreq/scaling_min_freq 2>/dev/null || echo n/a)"
+ms_max="$(cat /sys/devices/system/cpu/cpu$mc/cpufreq/scaling_max_freq 2>/dev/null || echo n/a)"
+ms_boost="$(cat /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || echo n/a)"           # AMD/acpi-cpufreq: 1=on 0=off
+ms_noturbo="$(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null || echo n/a)" # Intel pstate: 1=turbo off
+# IRQs currently landing on the isolated core — should be ~0 if irqaffinity steered them away.
+ms_irq="$(awk -v core="$mc" 'NR==1{for(i=1;i<=NF;i++) if($i=="CPU"core) col=i+1} NR>1 && col && $col ~ /^[0-9]+$/ {s+=$col} END{print (col? s+0 : "n/a")}' /proc/interrupts 2>/dev/null || echo n/a)"
+
 {
   echo "=========================================================================="
   echo "secp256k1-native — timing-verification reference machine report"
@@ -101,6 +119,15 @@ npk_rev="${npk_rev:-unknown}"
   echo "nixpkgs rev : $npk_rev"
   echo "dudect runs : $GATE_DUDECT_RUNS   threshold |t|<$THRESHOLD (strict) / mean|t|<$GATE_LENIENT_MEAN (operand-artefact ops)"
   echo "compilers   : $GATE_COMPILERS"
+  echo "-------------------------------- machine state (did the quiet config take?) --"
+  echo "cmdline     : $ms_cmdline"
+  echo "isolated    : $ms_isolated   (kernel-reported isolated CPUs; want the measurement core listed)"
+  echo "online cpus : $ms_online"
+  echo "SMT         : $ms_smt   (want 'off'/'forceoff')"
+  echo "core $mc gov  : $ms_gov   (want 'performance')"
+  echo "core $mc freq : min=$ms_min max=$ms_max cur=$cur_khz kHz   (want min==max==cur, no throttle)"
+  echo "boost/turbo : amd boost=$ms_boost (want 0)   intel no_turbo=$ms_noturbo (want 1)"
+  echo "core $mc IRQs : $ms_irq   (want ~0 — irqaffinity steered interrupts off the isolated core)"
   echo "=========================================================================="
   echo
 } > "$REPORT"
