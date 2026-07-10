@@ -27,7 +27,7 @@ The ISO bakes: the pinned `nixpkgs` (⇒ every `gccN`), the quiet-machine config
 - **Mechanism:** build via the nix `gccN` wrapper with hardening disabled (`NIX_HARDENING_ENABLE=""` / `hardeningDisable = ["all"]`) + `-O2`. **Confirmed empirically necessary** (Phase 3, gcc 14.3.0): the nixos-25.05 default `NIX_HARDENING_ENABLE` (`bindnow format fortify fortify3 pic relro stackclashprotection stackprotector strictoverflow zerocallusedregs`) *does* alter CT-function codegen — `scalar_multiply_ct_internal` 80 insns hardened vs 73 vanilla; `jp_add_internal` 347 vs 323 (benign register-zeroing + stack probes, both still branchless). So the hardened nix build is **not** the stock user's binary; disabling hardening is what makes them equivalent. With hardening off, the wrapper's residual `-B`/`-idirafter` paths don't touch the pure-arithmetic CT codegen.
 - **Proof (two checks) — mechanism DONE (`nix/vanilla-ext.sh`, `nix/codegen-equivalence.sh`):**
   - **Invariant (reuse existing tooling):** run `security/check-ct-assembly.rb` + ctgrind on the nix-built binary per compiler — no secret-dependent `je`/`jne`/`cmov` at the CT lines.
-  - **Equivalence (invariant-result, not byte golden):** run the assembly-invariant under *both* the pinned nix `gccN` and a **stock distro `gccN`** of the same major (stock reference built in a `gcc:<major>` Debian container); both must pass — "passing on nix ⇒ passing on stock". A byte golden was rejected as brittle across minors (a minor-driven codegen change is *signal*, investigated ad hoc). *Validated: nix gcc 14.3.0, stock gcc 14.4.0, stock gcc 15.3.0 all PASS.*
+  - **Equivalence (invariant-result, not byte golden):** run the assembly-invariant under *both* the pinned nix `gccN` and a **stock distro `gccN`** of the same major (`nix/stock-attest.sh`, in a `gcc:<major>` Debian container); both must pass — "passing on nix ⇒ passing on stock". A byte golden was rejected as brittle across minors (a minor-driven codegen change is *signal*, investigated ad hoc). **Defence in depth:** the two-symbol invariant is paired with **whole-binary ctgrind** on the stock build too, so a secret-dependent branch a stock gcc might outline into a *new* symbol (which the invariant wouldn't inspect) is still caught. *Validated: nix gcc 14.3.0, and stock gcc:15 (invariant + ctgrind) via `nix/stock-attest.sh`.*
 - **Also verify the CC actually took:** the extension is built by Ruby's mkmf/RbConfig CC — the gate must confirm each build really used the intended `gccN` (from the emit compile line / the binary), not silently fell back to the ISO's ruby default. (The Phase-1 shellHook already prints RbConfig CC for exactly this trap.)
 
 ## Repo layout (all additive — zero impact on `gem install` / `bundle`)
@@ -38,7 +38,8 @@ nix/
   reference-machine.nix   # quiet-machine module (isolcpus/irqaffinity/governor/boost/SMT, no-net, autologin)
   iso.nix                 # installation-cd-minimal → live ISO; bakes source; runs the gate as a service
   vanilla-ext.sh          # DONE — build the CT object at vanilla gcc -O2 (hardening off) + CC-took + assembly-invariant
-  codegen-equivalence.sh  # DONE — dev-time attestation: invariant holds under nix gccN AND stock distro gccN (same major)
+  codegen-equivalence.sh  # DONE — dev-time: invariant holds under nix gccN (in-env, per CC)
+  stock-attest.sh         # DONE — dev-time: stock gcc:<major> in Docker passes invariant + whole-binary ctgrind
   gate.sh                 # the gate: loop gccN → build+verify+rspec+ctgrind+dudect+stamp → report → halt
 docs/reference-machine.md # philosophy + build/test logistics + embedded config (Jekyll {% include %})
 ```

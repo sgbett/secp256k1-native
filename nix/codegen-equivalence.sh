@@ -22,19 +22,13 @@
 #
 # How the stock reference is produced
 # -----------------------------------
-# On the dev box (macOS/aarch64) the stock reference is built in an official
-# `gcc:<major>` Debian image, x86_64, so the codegen is the real thing:
+# The stock leg is automated in `nix/stock-attest.sh`: it spins an official
+# `gcc:<major>` Debian image (x86_64, so the codegen is the real thing) and runs
+# BOTH the assembly-invariant AND whole-binary ctgrind against the stock build —
+# ctgrind is symbol-agnostic, so it catches a secret branch a stock gcc might
+# outline into a new symbol that the two-symbol invariant would miss.
 #
-#   docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work gcc:15 \
-#     bash -c 'NIX_HARDENING_ENABLE="" gcc -O2 -g -Wall -std=c99 -fcommon \
-#       -fno-stack-protector -I timing -I ext/secp256k1_native \
-#       -c ext/secp256k1_native/jacobian.c -o tmp/jacobian.stock-gcc15.o'
-#   # then, in the nix devShell (has ruby + GNU objdump):
-#   ruby security/check-ct-assembly.rb tmp/jacobian.stock-gcc15.o
-#
-# (timing/ruby.h stubs the Ruby API so no ruby-dev is needed in the gcc image;
-# the CT functions are pure uint256_t arithmetic and never touch the Ruby API,
-# so stub-vs-real headers do not change their codegen.)
+#   nix/stock-attest.sh 14 15      # attest stock gcc:14 and gcc:15
 #
 # Attested results (nixos-25.05 pin, x86_64)
 # ------------------------------------------
