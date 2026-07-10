@@ -149,7 +149,11 @@ for cc in $GATE_COMPILERS; do
   so_major="$(readelf -p .comment lib/secp256k1_native.so 2>/dev/null | grep -oE '(GCC:|clang version)[^0-9]*[0-9]+' | grep -oE '[0-9]+$' | head -1)"
   cc_major="$("$cc" -dumpversion 2>/dev/null | cut -d. -f1)"
   if [ -n "$cc_major" ] && [ "$so_major" != "$cc_major" ]; then
-    log "  SKIPPED — staged .so built by compiler major '$so_major', not the intended '$cc_major'"
+    # NOT a SKIP: the build succeeded but the tested artifact can't be attributed
+    # to $cc — a certification failure, so red the gate (fail-closed) rather than
+    # let other compilers carry it to PASS. Continue the sweep for visibility.
+    log "  FAIL — staged .so built by compiler major '$so_major', not the intended '$cc_major' (cannot certify the tested artifact)"
+    overall_rc=1
     rm -rf "$work"; continue
   fi
   built=$((built + 1))

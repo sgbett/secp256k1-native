@@ -45,7 +45,7 @@
 # Usage
 # -----
 #   nix/vanilla-ext.sh [CC]            # CC defaults to $CC or `gcc`
-#   OUT=/path/jacobian.o nix/vanilla-ext.sh gcc-15   # keep the object for diffing
+# The CT object (security/jacobian_ct.o) is built and removed internally.
 #
 # Exit codes: 0 pass · 1 a check failed · 2 environment/usage error
 set -uo pipefail
