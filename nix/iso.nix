@@ -69,6 +69,13 @@ in
       trap 'sync; umount /mnt 2>/dev/null || true; [ -n "$no_poweroff" ] || systemctl poweroff' EXIT
       warn() { echo "timing-gate: $*" | tee /dev/tty1 /dev/console 2>/dev/null || true; }
 
+      # 0. Quiet: this is the UNATTENDED sweep, so stop the network + ssh daemons
+      #    the base image starts — DHCP/NTP/ssh activity is measurement noise.
+      #    (The `debug` boot-menu entry skips the sweep and leaves them up for
+      #    interactive SSH access instead.)
+      systemctl stop sshd.service systemd-networkd.service systemd-timesyncd.service \
+                     NetworkManager.service 'wpa_supplicant*' 2>/dev/null || true
+
       # 1. Writable copy of the baked source (store is read-only).
       work=/run/timing-gate/src
       rm -rf "$work"; mkdir -p "$work"
@@ -119,5 +126,32 @@ in
       # read as a clean service success.
       exit "$gate_rc"
     '';
+  };
+
+  # --- Interactive debug boot entry (a specialisation ⇒ a second boot-menu
+  # entry the nixpkgs ISO module generates for GRUB + isolinux). The ISO menu's
+  # existing timeout auto-boots the default (unattended sweep); arrow to
+  # "debug" + enter to get a networked shell instead. Build-time, so no runtime
+  # tty-prompt fragility. Same quiet-machine kernel params (isolation stays on
+  # so you can test its effect), but: the sweep does NOT run, networking + sshd
+  # stay up, and the box does NOT power off — SSH in and drive `bash nix/gate.sh`
+  # by hand, or tune sysfs and re-run.
+  #
+  # SSH access is KEY-ONLY: add your public key(s) to nix/debug-ssh-authorized-keys
+  # and rebuild. Until you do, the autologin root console is the way in (grab the
+  # DHCP IP with `ip a`, or set a password with `passwd`).
+  specialisation.debug.configuration = {
+    system.nixos.tags = [ "debug" ];
+    # No unattended sweep on this entry.
+    systemd.services.timing-gate.wantedBy = lib.mkForce [ ];
+    # SSH in for interactive tuning.
+    services.openssh = {
+      enable = true;
+      settings.PermitRootLogin = "prohibit-password"; # key-only root
+    };
+    users.users.root.openssh.authorizedKeys.keyFiles = [ ./debug-ssh-authorized-keys ];
+    networking.hostName = lib.mkForce "secp256k1-debug";
+    # A visible hint on the console about the mode.
+    users.motd = "secp256k1 reference machine — DEBUG boot: network + sshd up, sweep NOT run. `bash /etc/secp256k1-native/source/nix/gate.sh` to run the gate by hand.";
   };
 }

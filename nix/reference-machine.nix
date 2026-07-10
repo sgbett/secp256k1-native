@@ -103,14 +103,11 @@ in
       '';
     };
 
-    # --- No network ----------------------------------------------------------
-    # Source is baked and results go to USB; DHCP/NTP/etc. are pure measurement
-    # noise and attack surface. (networkd itself is left to the base image;
-    # disabling the active clients is what removes the noise.)
-    networking.useDHCP = lib.mkForce false;
-    networking.dhcpcd.enable = lib.mkForce false;
-    networking.networkmanager.enable = lib.mkForce false;
-    networking.wireless.enable = lib.mkForce false;
+    # --- Network quiet is the SWEEP's job, not a hard module policy -----------
+    # DHCP/NTP/etc. are measurement noise, so the sweep stops the network daemons
+    # (incl. wpa_supplicant) right before it measures (see nix/iso.nix). This
+    # module deliberately does NOT touch networking, so a `debug` boot
+    # specialisation can leave it up for SSH without fighting an mkForce here.
 
     # --- Console-only + autologin fallback -----------------------------------
     # No display manager / X. Autologin root so an operator can intervene on the

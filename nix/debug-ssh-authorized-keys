@@ -1,0 +1,10 @@
+# SSH public keys allowed to log in as root on the DEBUG boot entry of the
+# reference-machine ISO (see nix/iso.nix → specialisation.debug).
+#
+# Add one public key per line, then rebuild the ISO (`nix build .#iso`) and
+# re-flash the stick. Until a key is present here, key-based root SSH is
+# effectively disabled (secure default) — use the autologin root console on the
+# box (grab the DHCP IP with `ip a`, or `passwd` to set a temporary password).
+#
+# Example:
+#   ssh-ed25519 AAAAC3Nza... simon@macbook
