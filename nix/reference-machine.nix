@@ -3,7 +3,8 @@
 # Quiet-machine NixOS module for the timing-verification reference machine
 # (Phase 2 of plans/61-reference-machine-nix.md). Boot-level state that makes
 # the dudect pre-tag gate reproducible: one isolated CPU core with no scheduler
-# / IRQ / RCU noise, pinned frequency (no DVFS/turbo jitter), and SMT off.
+# / IRQ / RCU noise, pinned frequency (no DVFS/turbo jitter), no deep-idle wake
+# jitter (C-states forced to POLL on that core), and SMT off.
 # Imported by nix/iso.nix; also usable for a persistent box later.
 #
 # NB: this module does NOT disable networking — network *quiet during the
@@ -81,7 +82,7 @@ in
     # perturb the measurement. Ordered before the gate so the sweep runs pinned;
     # the report stamps the achieved frequency so residual throttling is visible.
     systemd.services.reference-machine-freq-pin = {
-      description = "Pin CPU frequency and disable turbo/boost for timing stability";
+      description = "Pin CPU frequency, disable turbo/boost, and force the isolated core out of deep idle for timing stability";
       wantedBy = [ "multi-user.target" ];
       before = [ "timing-gate.service" ];
       after = [ "sysinit.target" ];
@@ -98,6 +99,18 @@ in
           max=$(cat "$p/cpuinfo_max_freq")
           echo "$max" > "$p/scaling_min_freq" 2>/dev/null || true
           echo "$max" > "$p/scaling_max_freq" 2>/dev/null || true
+        done
+        # Force the isolated core out of deep idle. A core that enters a deep
+        # C-state between measurements pays a frequency-ramp penalty on wake
+        # (empirically ~4.3 -> ~4.0 GHz for the first microseconds after C3),
+        # surfacing as ns-scale jitter in the fastest field ops — the dominant
+        # noise source on the first bare-metal run (fadd |t| 213 -> ~1 once
+        # disabled; the pinned min=max frequency does NOT prevent this). Disable
+        # every non-POLL cpuidle state on the measurement core so its idle loop
+        # busy-polls at the pinned frequency. Only the isolated core — the
+        # housekeeping cores idle normally to save power.
+        for s in /sys/devices/system/cpu/cpu${toString cfg.isolatedCore}/cpuidle/state[1-9]*/disable; do
+          [ -w "$s" ] && echo 1 > "$s" 2>/dev/null || true
         done
       '' + lib.optionalString (cfg.cpuVendor == "amd") ''
         # AMD: global boost knob (acpi-cpufreq / amd-pstate).
