@@ -35,15 +35,16 @@
       gateTools = [ gateGems pkgs.ruby_3_3 pkgs.gnumake pkgs.binutils pkgs.valgrind pkgs.util-linux pkgs.bash pkgs.coreutils pkgs.gnused pkgs.gnugrep pkgs.gawk ] ++ gccSet;
 
       # The ctgrind harness includes <valgrind/memcheck.h>, which nixpkgs ships in
-      # valgrind's `dev` output — NOT its `out` (bin/lib only). In `nix develop`
-      # the header is found automatically because valgrind is a buildInput (the
-      # cc-wrapper injects its include via NIX_CFLAGS_COMPILE); outside a devShell
-      # (the ISO service, `nix run .#timing-gate`, the debug MOTD) nothing does, so
-      # the ctgrind build fails "memcheck.h: No such file or directory". Point the
-      # nix gcc wrapper at the dev include explicitly. -isystem is codegen-neutral
-      # (a header search path only; jacobian.c never includes it), so this does not
-      # perturb the vanilla CT build the gate certifies. Referencing the store path
-      # here also pulls valgrind.dev into the ISO closure so the header is present.
+      # valgrind's `dev` output — NOT its `out` (bin/lib only), and not on the
+      # default include path outside a devShell. A *manually* exported
+      # NIX_CFLAGS_COMPILE does NOT work here: this cc-wrapper reads a salted
+      # variant (NIX_CFLAGS_COMPILE_<hash>), so a bare assignment is silently
+      # ignored (confirmed on bare metal — the header stays unfound). Pass the
+      # include to the ctgrind build EXPLICITLY instead, as a make variable
+      # (CTGRIND_VG_CFLAGS) threaded through gate.sh via GATE_CTGRIND_VG_CFLAGS.
+      # -isystem is codegen-neutral (a header search path only; the CT sources
+      # never include it), and referencing the store path here also pulls
+      # valgrind.dev into the ISO closure so the header is present on the box.
       valgrindCFlags = "-isystem ${pkgs.lib.getDev pkgs.valgrind}/include";
     in
     {
@@ -71,6 +72,9 @@
         shellHook = ''
           # Keep gem installs local and out of the git tree.
           export BUNDLE_PATH="$PWD/.bundle"
+          # Explicit valgrind-dev include for the gate's ctgrind build (see
+          # valgrindCFlags) — same mechanism as the ISO, so `nix develop` matches.
+          export GATE_CTGRIND_VG_CFLAGS="${valgrindCFlags}"
           echo "secp256k1-native timing toolchain (flake-pinned):"
           echo "  gcc      : $(gcc --version | head -1)"
           echo "  ruby     : $(ruby --version)"
@@ -97,10 +101,9 @@
           # GATE_SOURCE_REV from the flake instead).
           export PATH=${pkgs.lib.makeBinPath (gateTools ++ [ pkgs.git ])}:$PATH
           export GATE_RUBY_EXEC=""
-          # valgrind's memcheck.h lives in its `dev` output (see valgrindCFlags);
-          # make the nix gcc wrapper find it so the ctgrind step builds outside a
-          # devShell too.
-          export NIX_CFLAGS_COMPILE="${valgrindCFlags} ''${NIX_CFLAGS_COMPILE:-}"
+          # Explicit valgrind-dev include for the ctgrind build (see valgrindCFlags);
+          # a bare NIX_CFLAGS_COMPILE is ignored by the salted cc-wrapper.
+          export GATE_CTGRIND_VG_CFLAGS="${valgrindCFlags}"
           exec ${pkgs.bash}/bin/bash nix/gate.sh "$@"
         '');
       };

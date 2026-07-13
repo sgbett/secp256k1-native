@@ -44,8 +44,12 @@ dfuzz: dfuzz_harness.c $(EXT_SRCS) $(STUB_SRC)
 	$(CC) -O2 $(BASEFLAGS) $^ -lm -o dfuzz
 
 # valgrind is incompatible with -fsanitize here; build with debug info only.
+# CTGRIND_VG_CFLAGS: optional path to <valgrind/memcheck.h> when it isn't on the
+# default include path (e.g. `-isystem <valgrind.dev>/include` on nix, where the
+# header lives in valgrind's separate `dev` output). Empty otherwise.
+CTGRIND_VG_CFLAGS ?=
 ctgrind: ctgrind_harness.c $(EXT_SRCS) $(STUB_SRC)
-	$(CC) -O1 -g $(BASEFLAGS) $^ -lm -o ctgrind_harness
+	$(CC) -O1 -g $(BASEFLAGS) $(CTGRIND_VG_CFLAGS) $^ -lm -o ctgrind_harness
 
 asan: asan_sweep.c $(EXT_SRCS) $(STUB_SRC)
 	$(CC) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \

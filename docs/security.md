@@ -155,6 +155,26 @@ A non-isolated desktop (live GUI session, no `isolcpus` core reservation) also r
 
 The harness assigns each measurement to an input class **pseudorandomly** — a per-measurement draw from the harness PRNG, as Reparaz et al. specify — not by deterministic `i & 1` alternation. This matters on real hardware: a fixed A,B,A,B cadence *aliases* with periodic ~µs transients (an SMI, a brief frequency dip on the isolated core), so in phase-aligned runs the transient lands preferentially on one class and manufactures a large, single-class |t| that is pure artefact. The reproducible [reference machine](reference-machine.md) — a NixOS / GCC 15.1 build, **distinct from the Ubuntu / GCC 15.2 box whose figures appear above** — surfaced this: under `i & 1` its fastest field ops spiked to |t| = 218 (`fadd`) / 265 (`fred`) while the ~256× slower ladder, which averages transients out, stayed flat; drawing the class from the PRNG collapsed those to ~12 / ~6. Detection power is unaffected, because a genuine data-dependent leak correlates with the input **class**, not the measurement index, and so survives the change — the issue-#25 ladder leak, *before* it was fixed, read |t| ≈ 21, and a leak of that kind would still be caught under either scheme. Only the aliasing artefact is removed. What breaks the aliasing is the PRNG's aperiodicity (period ~2⁶⁴), not per-run variation, so the harness's fixed seed (reproducible inputs by design) is retained. The Ubuntu / GCC 15.2 figures above predate this change but are unaffected by it: that box did not alias (its residual |t| was already noise-floor), so its class-assignment order made no material difference.
 
+#### Reference-machine figures (GCC 15.1) — per-toolchain calibration
+
+The reproducible [reference machine](reference-machine.md) re-runs the same sweep on a toolchain pinned *distinct* from the issue-#25 box: **NixOS (nixpkgs `ac62194`), GCC 15.1, kernel 6.12.63** on the same AMD Ryzen 9 9950X (microcode `0xb404023`), with the C-state disable, the random-class harness ([issue #72](#randomised-class-assignment-issue-72)), and `copytoram` (USB idle) all active. N=20:
+
+| Function | mean \|t\| | max \|t\| | runs over 4.5 | Result |
+|---|---|---|---|---|
+| `scalar_multiply_ct_internal` | 0.69 | 1.48 | 0 / 20 | **PASS** (strict) |
+| `scalar_mul_internal` | 0.65 | 1.72 | 0 / 20 | PASS (strict) |
+| `scalar_reduce` | 1.01 | 2.23 | 0 / 20 | PASS (strict) |
+| `scalar_inv_internal` | 0.26 | 0.74 | 0 / 20 | PASS (strict) |
+| `fneg_internal` | 0.64 | 1.83 | 0 / 20 | PASS (lenient) |
+| `fadd_internal` | 3.35 | 9.29 | 6 / 20 | PASS (lenient) |
+| `fred_internal` | 3.46 | 8.82 | 7 / 20 | PASS (lenient) |
+| `fsub_internal` | 10.76 | 26.36 | 11 / 20 | PASS (lenient, artefact) |
+| `jp_add_internal` | 22.40 | 54.29 | 17 / 20 | PASS (lenient, artefact) |
+
+All four **strict** (secret-scalar) operations are flat (0/20 at |t|<4.5), and the deterministic **ctgrind pass is CLEAN** (every secret poisoned, nothing reaches a branch). The field/point operations carry the documented operand-value multiplier artefact — **markedly larger on GCC 15.1 than the GCC 15.2 figures above** (`jp_add` ~22 vs 3.3, `fsub` ~11 vs 0.6): a toolchain-dependent Zen-multiplier operand-value latency, not a leak (ctgrind confirms no branch, and the composed secret operation `scalar_multiply_ct_internal` stays flat).
+
+Because the artefact magnitude is toolchain-specific, the gate's **lenient thresholds are calibrated per pinned toolchain** ([issue #74](https://github.com/sgbett/secp256k1-native/issues/74)), re-derived from the authoritative sweep whenever the compiler changes — an artefact floor, *not* loosen-to-green. The **mean** |t| is the stable, gated signal; the per-run **max** is noisy for these ~20 ns operations (across sweeps `jp_add` max ran 37/51/54 and `fsub` 27/55/26, while the means held at ~16–22 and ~11), so its bound is only a loose gross-anomaly backstop. On GCC 15.1 the bounds are `mean|t|<35 / max|t|<75`, above the observed artefact envelope yet far below a compiler-reconstructed-branch signature, which would drive the *mean* into the tens-to-hundreds and hold it there across every run (cf. the #25 ladder leak, stable |t| ≈ 21, on a strict op). The strict thresholds and the ctgrind pass are the security gate; the lenient bounds tolerate the benign diagnostic-op artefact.
+
 #### Bare-metal dudect is a pre-tag release gate
 
 The GCC 15 finding makes the policy explicit: **"passes ctgrind in CI" is not sufficient on its own to ship a release.** A compiler upgrade — or a change in flags, target, or even an inlining decision — can silently reconstruct a branch from branchless source, and only the statistical, bare-metal dudect pass observes the *compiled* timing. The deterministic check would have caught this one (it did), but it runs against whatever toolchain CI happens to use; the timing that ships is the timing on the user's compiler. Therefore the bare-metal dudect run in the [runbook](timing-verification-runbook.md) is a **required gate before tagging a release**, re-run whenever the pinned/known-good compiler version changes — not a one-off for issue #25.

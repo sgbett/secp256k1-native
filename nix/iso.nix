@@ -59,8 +59,10 @@ in
     };
     # The ctgrind build needs <valgrind/memcheck.h> from valgrind's `dev` output,
     # which isn't on the default include path (see valgrindCFlags in flake.nix).
-    # A systemd service gets a clean env, so set it here explicitly.
-    environment.NIX_CFLAGS_COMPILE = valgrindCFlags;
+    # gate.sh passes this to the ctgrind make as CTGRIND_VG_CFLAGS (a bare
+    # NIX_CFLAGS_COMPILE is ignored by the salted cc-wrapper). Systemd gives the
+    # service a clean env, so set it here.
+    environment.GATE_CTGRIND_VG_CFLAGS = valgrindCFlags;
     # gateTools already provides util-linux (mount/umount/blkid) and coreutils
     # (sync); no need to re-add them. Keep the PATH minimal (principle 3).
     path = gateTools;
@@ -177,7 +179,7 @@ in
       secp256k1 reference machine — DEBUG boot: network + sshd up, sweep NOT run.
       Run the gate by hand from a writable copy of the read-only baked source:
         rm -rf /root/src && cp -aL /etc/secp256k1-native/source /root/src && chmod -R u+w /root/src && cd /root/src
-        NIX_CFLAGS_COMPILE="${valgrindCFlags}" GATE_RUBY_EXEC="" GATE_CORE=${toString isolatedCore} GATE_OUT=/root/out bash nix/gate.sh
+        GATE_CTGRIND_VG_CFLAGS="${valgrindCFlags}" GATE_RUBY_EXEC="" GATE_CORE=${toString isolatedCore} GATE_OUT=/root/out bash nix/gate.sh
     '';
   };
 }
