@@ -107,10 +107,13 @@ in
         # noise source on the first bare-metal run (fadd |t| 213 -> ~1 once
         # disabled; the pinned min=max frequency does NOT prevent this). Disable
         # every non-POLL cpuidle state on the measurement core so its idle loop
-        # busy-polls at the pinned frequency. Only the isolated core — the
-        # housekeeping cores idle normally to save power.
-        for s in /sys/devices/system/cpu/cpu${toString cfg.isolatedCore}/cpuidle/state[1-9]*/disable; do
-          [ -w "$s" ] && echo 1 > "$s" 2>/dev/null || true
+        # busy-polls at the pinned frequency. Match POLL by NAME rather than
+        # assuming it is state0 — it is on x86, but don't rely on the index; a
+        # non-POLL state left enabled would reintroduce the wake/ramp jitter.
+        # Only the isolated core — the housekeeping cores idle normally to save power.
+        for s in /sys/devices/system/cpu/cpu${toString cfg.isolatedCore}/cpuidle/state*; do
+          [ "$(cat "$s/name" 2>/dev/null)" = POLL ] && continue
+          [ -w "$s/disable" ] && echo 1 > "$s/disable" 2>/dev/null || true
         done
       '' + lib.optionalString (cfg.cpuVendor == "amd") ''
         # AMD: global boost knob (acpi-cpufreq / amd-pstate).
