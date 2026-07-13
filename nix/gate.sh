@@ -94,7 +94,13 @@ npk_rev="${npk_rev:-unknown}"
 # real box).
 # Machine-wide state (always meaningful):
 ms_cmdline="$(cat /proc/cmdline 2>/dev/null || echo unknown)"
-ms_isolated="$(cat /sys/devices/system/cpu/isolated 2>/dev/null)"; ms_isolated="${ms_isolated:-<none>}"
+if [ -r /sys/devices/system/cpu/isolated ]; then
+  # File present: empty contents mean genuinely no isolated CPUs.
+  ms_isolated="$(cat /sys/devices/system/cpu/isolated)"; ms_isolated="${ms_isolated:-<none>}"
+else
+  # File absent (kernel doesn't expose it) — can't tell; don't misreport as <none>.
+  ms_isolated="<unknown (no /sys/.../cpu/isolated on this kernel)>"
+fi
 ms_online="$(cat /sys/devices/system/cpu/online 2>/dev/null || echo unknown)"
 ms_smt="$(cat /sys/devices/system/cpu/smt/control 2>/dev/null || echo n/a)"
 ms_boost="$(cat /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || echo n/a)"           # AMD/acpi-cpufreq: 1=on 0=off
@@ -107,7 +113,8 @@ if [ -n "$GATE_CORE" ]; then
   ms_gov="$(cat /sys/devices/system/cpu/cpu$mc/cpufreq/scaling_governor 2>/dev/null || echo n/a)"
   ms_min="$(cat /sys/devices/system/cpu/cpu$mc/cpufreq/scaling_min_freq 2>/dev/null || echo n/a)"
   ms_max="$(cat /sys/devices/system/cpu/cpu$mc/cpufreq/scaling_max_freq 2>/dev/null || echo n/a)"
-  # IRQs currently landing on the isolated core — should be ~0 if irqaffinity steered them away.
+  # Cumulative IRQ count on the isolated core SINCE BOOT (a total from
+  # /proc/interrupts, not a live rate) — should be ~0 if irqaffinity steered them away.
   ms_irq="$(awk -v core="$mc" 'NR==1{for(i=1;i<=NF;i++) if($i=="CPU"core) col=i+1} NR>1 && col && $col ~ /^[0-9]+$/ {s+=$col} END{print (col? s+0 : "n/a")}' /proc/interrupts 2>/dev/null || echo n/a)"
 else
   mc="<none>"; ms_gov="n/a"; ms_min="n/a"; ms_max="n/a"; ms_irq="n/a"
@@ -135,7 +142,7 @@ fi
   echo "core $mc gov  : $ms_gov   (want 'performance')"
   echo "core $mc freq : min=$ms_min max=$ms_max cur=$cur_khz kHz   (want min==max==cur, no throttle)"
   echo "boost/turbo : amd boost=$ms_boost (want 0)   intel no_turbo=$ms_noturbo (want 1)"
-  echo "core $mc IRQs : $ms_irq   (want ~0 — irqaffinity steered interrupts off the isolated core)"
+  echo "core $mc IRQs : $ms_irq   (cumulative since boot; want ~0 — irqaffinity steered interrupts off the isolated core)"
   echo "=========================================================================="
   echo
 } > "$REPORT"
