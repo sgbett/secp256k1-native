@@ -79,13 +79,46 @@ step() { timeout "$GATE_TIMEOUT" "$@"; }
 cpu_model="$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | sed 's/^ //' || echo unknown)"
 microcode="$(grep -m1 microcode /proc/cpuinfo 2>/dev/null | cut -d: -f2- | tr -d ' ' || echo unknown)"
 kernel="$(uname -r 2>/dev/null || echo unknown)"
-cur_khz="$(cat /sys/devices/system/cpu/cpu${GATE_CORE:-0}/cpufreq/scaling_cur_freq 2>/dev/null || echo unknown)"
+cur_khz="$([ -n "$GATE_CORE" ] && cat /sys/devices/system/cpu/cpu"$GATE_CORE"/cpufreq/scaling_cur_freq 2>/dev/null || echo n/a)"
 src_rev="${GATE_SOURCE_REV:-$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 # Parse the nixpkgs node's rev specifically (ruby+JSON — always available here),
 # not the first "rev" in flake.lock, which stops being nixpkgs the moment another
 # input with a rev is added.
 npk_rev="${GATE_NIXPKGS_REV:-$(ruby -rjson -e 'begin; print(JSON.parse(File.read(ARGV[0])).dig("nodes","nixpkgs","locked","rev").to_s[0,12]); rescue; end' "$ROOT/flake.lock" 2>/dev/null)}"
 npk_rev="${npk_rev:-unknown}"
+
+# --- machine-state diagnostics -----------------------------------------------
+# Stamp what the quiet-machine config ACTUALLY did, so a single bare-metal run
+# reveals a knob that didn't take (e.g. isolcpus wrong for this CPU, boost still
+# on) — instead of a silent physical round-trip. All best-effort ("n/a" off the
+# real box).
+# Machine-wide state (always meaningful):
+ms_cmdline="$(cat /proc/cmdline 2>/dev/null || echo unknown)"
+if [ -r /sys/devices/system/cpu/isolated ]; then
+  # File present: empty contents mean genuinely no isolated CPUs.
+  ms_isolated="$(cat /sys/devices/system/cpu/isolated)"; ms_isolated="${ms_isolated:-<none>}"
+else
+  # File absent (kernel doesn't expose it) — can't tell; don't misreport as <none>.
+  ms_isolated="<unknown (no /sys/.../cpu/isolated on this kernel)>"
+fi
+ms_online="$(cat /sys/devices/system/cpu/online 2>/dev/null || echo unknown)"
+ms_smt="$(cat /sys/devices/system/cpu/smt/control 2>/dev/null || echo n/a)"
+ms_boost="$(cat /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || echo n/a)"           # AMD/acpi-cpufreq: 1=on 0=off
+ms_noturbo="$(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null || echo n/a)" # Intel pstate: 1=turbo off
+# Per-core state is only meaningful when a core is actually pinned. In dev/CI
+# (GATE_CORE unset) report n/a — don't stamp core 0's stats as "the measured
+# core" while the header says isolated=<none> (that would be inconsistent).
+if [ -n "$GATE_CORE" ]; then
+  mc="$GATE_CORE"
+  ms_gov="$(cat /sys/devices/system/cpu/cpu"$mc"/cpufreq/scaling_governor 2>/dev/null || echo n/a)"
+  ms_min="$(cat /sys/devices/system/cpu/cpu"$mc"/cpufreq/scaling_min_freq 2>/dev/null || echo n/a)"
+  ms_max="$(cat /sys/devices/system/cpu/cpu"$mc"/cpufreq/scaling_max_freq 2>/dev/null || echo n/a)"
+  # Cumulative IRQ count on the isolated core SINCE BOOT (a total from
+  # /proc/interrupts, not a live rate) — should be ~0 if irqaffinity steered them away.
+  ms_irq="$(awk -v core="$mc" 'NR==1{for(i=1;i<=NF;i++) if($i=="CPU"core) col=i+1} NR>1 && col && $col ~ /^[0-9]+$/ {s+=$col} END{print (col? s+0 : "n/a")}' /proc/interrupts 2>/dev/null || echo n/a)"
+else
+  mc="<none>"; ms_gov="n/a"; ms_min="n/a"; ms_max="n/a"; ms_irq="n/a"
+fi
 
 {
   echo "=========================================================================="
@@ -101,6 +134,15 @@ npk_rev="${npk_rev:-unknown}"
   echo "nixpkgs rev : $npk_rev"
   echo "dudect runs : $GATE_DUDECT_RUNS   threshold |t|<$THRESHOLD (strict) / mean|t|<$GATE_LENIENT_MEAN (operand-artefact ops)"
   echo "compilers   : $GATE_COMPILERS"
+  echo "-------------------------------- machine state (did the quiet config take?) --"
+  echo "cmdline     : $ms_cmdline"
+  echo "isolated    : $ms_isolated   (kernel-reported isolated CPUs; want the measurement core listed)"
+  echo "online cpus : $ms_online"
+  echo "SMT         : $ms_smt   (want 'off'/'forceoff')"
+  echo "core $mc gov  : $ms_gov   (want 'performance')"
+  echo "core $mc freq : min=$ms_min max=$ms_max cur=$cur_khz kHz   (want min==max==cur, no throttle)"
+  echo "boost/turbo : amd boost=$ms_boost (want 0)   intel no_turbo=$ms_noturbo (want 1)"
+  echo "core $mc IRQs : $ms_irq   (cumulative since boot; want ~0 — irqaffinity steered interrupts off the isolated core)"
   echo "=========================================================================="
   echo
 } > "$REPORT"

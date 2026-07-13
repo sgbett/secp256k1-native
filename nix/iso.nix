@@ -9,7 +9,7 @@
 # Prototype: gcc15 only (gccSet in flake.nix). Widen the set once it boots on
 # bare metal (Phase 7). The measurement is meaningful ONLY on quiet bare metal —
 # a VM/Docker run validates the boot→sweep→report→halt AUTOMATION, not timing.
-{ config, lib, pkgs, modulesPath, refSource, gateGems, gccSet, gateTools, ... }:
+{ config, lib, pkgs, modulesPath, refSource, gateGems, gccSet, gateTools, valgrindCFlags, ... }:
 
 let
   isolatedCore = config.referenceMachine.isolatedCore;
@@ -25,7 +25,9 @@ in
   # A minimal live ISO (installation-cd-minimal) as the base image.
   imports = [ "${modulesPath}/installer/cd-dvd/installation-cd-minimal.nix" ];
 
-  # Turn on the quiet-machine boot state (isolcpus, freq pin, no network, …).
+  # Turn on the quiet-machine boot state (isolcpus, freq pin, SMT off, …).
+  # (It doesn't disable networking — the sweep service stops the network daemons
+  # before measuring; see below.)
   referenceMachine.enable = true;
   # referenceMachine.isolatedCore / .cpuVendor default to 15 / amd — override per
   # box here when the real hardware is known.
@@ -55,6 +57,10 @@ in
       StandardError = "tty";
       TTYPath = "/dev/tty1";
     };
+    # The ctgrind build needs <valgrind/memcheck.h> from valgrind's `dev` output,
+    # which isn't on the default include path (see valgrindCFlags in flake.nix).
+    # A systemd service gets a clean env, so set it here explicitly.
+    environment.NIX_CFLAGS_COMPILE = valgrindCFlags;
     # gateTools already provides util-linux (mount/umount/blkid) and coreutils
     # (sync); no need to re-add them. Keep the PATH minimal (principle 3).
     path = gateTools;
@@ -68,6 +74,13 @@ in
       no_poweroff=""
       trap 'sync; umount /mnt 2>/dev/null || true; [ -n "$no_poweroff" ] || systemctl poweroff' EXIT
       warn() { echo "timing-gate: $*" | tee /dev/tty1 /dev/console 2>/dev/null || true; }
+
+      # 0. Quiet: this is the UNATTENDED sweep, so stop the network + ssh daemons
+      #    that the base image starts — DHCP/NTP/ssh activity is measurement noise.
+      #    (The `debug` boot-menu entry skips the sweep and leaves them up for
+      #    interactive SSH access instead.)
+      systemctl stop sshd.service systemd-networkd.service systemd-timesyncd.service \
+                     NetworkManager.service dhcpcd.service 'wpa_supplicant*' 2>/dev/null || true
 
       # 1. Writable copy of the baked source (store is read-only).
       work=/run/timing-gate/src
@@ -118,6 +131,53 @@ in
       # timing-gate` / the journal reflect PASS/FAIL — a detected leak must not
       # read as a clean service success.
       exit "$gate_rc"
+    '';
+  };
+
+  # --- Interactive debug boot entry (a specialisation ⇒ a second boot-menu
+  # entry the nixpkgs ISO module generates for GRUB + isolinux). The ISO menu's
+  # existing timeout auto-boots the default (unattended sweep); arrow to
+  # "debug" + enter to get a networked shell instead. Build-time, so no runtime
+  # tty-prompt fragility. Same quiet-machine kernel params (isolation stays on
+  # so you can test its effect), but: the sweep does NOT run, networking + sshd
+  # stay up, and the box does NOT power off — SSH in and drive `bash nix/gate.sh`
+  # by hand, or tune sysfs and re-run.
+  #
+  # SSH access is KEY-ONLY (PermitRootLogin=prohibit-password): add your public
+  # key(s) to nix/debug-ssh-authorized-keys and rebuild. Without a baked key,
+  # log in on the autologin root console (grab the DHCP IP with `ip a`); to
+  # enable SSH ad-hoc without a rebuild, append a key to
+  # /root/.ssh/authorized_keys there. (Password SSH is off, so `passwd` only
+  # helps the local console, not SSH.)
+  specialisation.debug.configuration = {
+    system.nixos.tags = [ "debug" ];
+    # No unattended sweep on this entry.
+    systemd.services.timing-gate.wantedBy = lib.mkForce [ ];
+    # SSH in for interactive tuning.
+    services.openssh = {
+      enable = true;
+      settings = {
+        PermitRootLogin = "prohibit-password"; # key-only root
+        # Defence-in-depth: this is a key-only appliance, so pin the whole
+        # password/interactive surface off rather than leaning on upstream
+        # defaults. The empty-password installer `nixos` account is remotely
+        # inert today ONLY because sshd's PermitEmptyPasswords defaults to no and
+        # the PAM auth line carries no nullok; a future base-profile change could
+        # silently reopen that. No mkForce needed — the installer profile leaves
+        # these at the module default (true), so a plain assignment overrides.
+        PasswordAuthentication = false;
+        KbdInteractiveAuthentication = false;
+      };
+    };
+    users.users.root.openssh.authorizedKeys.keyFiles = [ ./debug-ssh-authorized-keys ];
+    networking.hostName = lib.mkForce "secp256k1-debug";
+    # Console hint. NB: the baked source is a READ-ONLY nix store copy, so the
+    # gate (which clobbers + builds in-tree) must run from a WRITABLE copy.
+    users.motd = ''
+      secp256k1 reference machine — DEBUG boot: network + sshd up, sweep NOT run.
+      Run the gate by hand from a writable copy of the read-only baked source:
+        rm -rf /root/src && cp -aL /etc/secp256k1-native/source /root/src && chmod -R u+w /root/src && cd /root/src
+        NIX_CFLAGS_COMPILE="${valgrindCFlags}" GATE_RUBY_EXEC="" GATE_CORE=${toString isolatedCore} GATE_OUT=/root/out bash nix/gate.sh
     '';
   };
 }

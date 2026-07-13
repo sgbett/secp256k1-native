@@ -1,0 +1,15 @@
+# SSH public keys allowed to log in as root on the DEBUG boot entry of the
+# reference-machine ISO (see nix/iso.nix → specialisation.debug).
+#
+# Kept a PLACEHOLDER in the repo on purpose — a public project shouldn't ship a
+# specific person's authorisation. Add your own key(s) here in your WORKING COPY
+# (do NOT commit them) and build: `nix build .#iso` reads the working tree, so a
+# dirty-tree build bakes your key without it ever entering git history.
+#
+# Key-only root SSH (PermitRootLogin=prohibit-password). With no key baked, SSH
+# is effectively closed — password SSH is OFF, so `passwd` won't open it. Ways
+# in on the box: the autologin root console, or append a key to
+# /root/.ssh/authorized_keys at runtime to enable SSH without a rebuild.
+#
+# Example (add below, uncommitted):
+#   ssh-ed25519 AAAAC3Nza... you@host

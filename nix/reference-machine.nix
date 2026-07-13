@@ -3,8 +3,14 @@
 # Quiet-machine NixOS module for the timing-verification reference machine
 # (Phase 2 of plans/61-reference-machine-nix.md). Boot-level state that makes
 # the dudect pre-tag gate reproducible: one isolated CPU core with no scheduler
-# / IRQ / RCU noise, pinned frequency (no DVFS/turbo jitter), SMT off, and no
-# network. Imported by nix/iso.nix; also usable for a persistent box later.
+# / IRQ / RCU noise, pinned frequency (no DVFS/turbo jitter), no deep-idle wake
+# jitter (C-states forced to POLL on that core), and SMT off.
+# Imported by nix/iso.nix; also usable for a persistent box later.
+#
+# NB: this module does NOT disable networking — network *quiet during the
+# measurement* is the sweep service's job (it stops the network daemons right
+# before measuring; see nix/iso.nix), which lets the debug boot entry keep the
+# network up for SSH without fighting an mkForce here.
 #
 # Why boot-level: the quiet state is a property of the kernel command line and
 # early sysfs, NOT of userspace. That is exactly why one boot can sweep every
@@ -76,7 +82,7 @@ in
     # perturb the measurement. Ordered before the gate so the sweep runs pinned;
     # the report stamps the achieved frequency so residual throttling is visible.
     systemd.services.reference-machine-freq-pin = {
-      description = "Pin CPU frequency and disable turbo/boost for timing stability";
+      description = "Pin CPU frequency, disable turbo/boost, and force the isolated core out of deep idle for timing stability";
       wantedBy = [ "multi-user.target" ];
       before = [ "timing-gate.service" ];
       after = [ "sysinit.target" ];
@@ -94,6 +100,21 @@ in
           echo "$max" > "$p/scaling_min_freq" 2>/dev/null || true
           echo "$max" > "$p/scaling_max_freq" 2>/dev/null || true
         done
+        # Force the isolated core out of deep idle. A core that enters a deep
+        # C-state between measurements pays a frequency-ramp penalty on wake
+        # (empirically ~4.3 -> ~4.0 GHz for the first microseconds after C3),
+        # surfacing as ns-scale jitter in the fastest field ops — the dominant
+        # noise source on the first bare-metal run (fadd |t| 213 -> ~1 once
+        # disabled; the pinned min=max frequency does NOT prevent this). Disable
+        # every non-POLL cpuidle state on the measurement core so its idle loop
+        # busy-polls at the pinned frequency. Match POLL by NAME rather than
+        # assuming it is state0 — it is on x86, but don't rely on the index; a
+        # non-POLL state left enabled would reintroduce the wake/ramp jitter.
+        # Only the isolated core — the housekeeping cores idle normally to save power.
+        for s in /sys/devices/system/cpu/cpu${toString cfg.isolatedCore}/cpuidle/state*; do
+          [ "$(cat "$s/name" 2>/dev/null)" = POLL ] && continue
+          [ -w "$s/disable" ] && echo 1 > "$s/disable" 2>/dev/null || true
+        done
       '' + lib.optionalString (cfg.cpuVendor == "amd") ''
         # AMD: global boost knob (acpi-cpufreq / amd-pstate).
         [ -w /sys/devices/system/cpu/cpufreq/boost ] && echo 0 > /sys/devices/system/cpu/cpufreq/boost || true
@@ -103,14 +124,11 @@ in
       '';
     };
 
-    # --- No network ----------------------------------------------------------
-    # Source is baked and results go to USB; DHCP/NTP/etc. are pure measurement
-    # noise and attack surface. (networkd itself is left to the base image;
-    # disabling the active clients is what removes the noise.)
-    networking.useDHCP = lib.mkForce false;
-    networking.dhcpcd.enable = lib.mkForce false;
-    networking.networkmanager.enable = lib.mkForce false;
-    networking.wireless.enable = lib.mkForce false;
+    # --- Network quiet is the SWEEP's job, not a hard module policy -----------
+    # DHCP/NTP/etc. are measurement noise, so the sweep stops the network daemons
+    # (incl. wpa_supplicant) right before it measures (see nix/iso.nix). This
+    # module deliberately does NOT touch networking, so a `debug` boot
+    # specialisation can leave it up for SSH without fighting an mkForce here.
 
     # --- Console-only + autologin fallback -----------------------------------
     # No display manager / X. Autologin root so an operator can intervene on the
