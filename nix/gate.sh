@@ -79,7 +79,7 @@ step() { timeout "$GATE_TIMEOUT" "$@"; }
 cpu_model="$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | sed 's/^ //' || echo unknown)"
 microcode="$(grep -m1 microcode /proc/cpuinfo 2>/dev/null | cut -d: -f2- | tr -d ' ' || echo unknown)"
 kernel="$(uname -r 2>/dev/null || echo unknown)"
-cur_khz="$([ -n "$GATE_CORE" ] && cat /sys/devices/system/cpu/cpu$GATE_CORE/cpufreq/scaling_cur_freq 2>/dev/null || echo n/a)"
+cur_khz="$([ -n "$GATE_CORE" ] && cat /sys/devices/system/cpu/cpu"$GATE_CORE"/cpufreq/scaling_cur_freq 2>/dev/null || echo n/a)"
 src_rev="${GATE_SOURCE_REV:-$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 # Parse the nixpkgs node's rev specifically (ruby+JSON — always available here),
 # not the first "rev" in flake.lock, which stops being nixpkgs the moment another
@@ -110,9 +110,9 @@ ms_noturbo="$(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null || e
 # core" while the header says isolated=<none> (that would be inconsistent).
 if [ -n "$GATE_CORE" ]; then
   mc="$GATE_CORE"
-  ms_gov="$(cat /sys/devices/system/cpu/cpu$mc/cpufreq/scaling_governor 2>/dev/null || echo n/a)"
-  ms_min="$(cat /sys/devices/system/cpu/cpu$mc/cpufreq/scaling_min_freq 2>/dev/null || echo n/a)"
-  ms_max="$(cat /sys/devices/system/cpu/cpu$mc/cpufreq/scaling_max_freq 2>/dev/null || echo n/a)"
+  ms_gov="$(cat /sys/devices/system/cpu/cpu"$mc"/cpufreq/scaling_governor 2>/dev/null || echo n/a)"
+  ms_min="$(cat /sys/devices/system/cpu/cpu"$mc"/cpufreq/scaling_min_freq 2>/dev/null || echo n/a)"
+  ms_max="$(cat /sys/devices/system/cpu/cpu"$mc"/cpufreq/scaling_max_freq 2>/dev/null || echo n/a)"
   # Cumulative IRQ count on the isolated core SINCE BOOT (a total from
   # /proc/interrupts, not a live rate) — should be ~0 if irqaffinity steered them away.
   ms_irq="$(awk -v core="$mc" 'NR==1{for(i=1;i<=NF;i++) if($i=="CPU"core) col=i+1} NR>1 && col && $col ~ /^[0-9]+$/ {s+=$col} END{print (col? s+0 : "n/a")}' /proc/interrupts 2>/dev/null || echo n/a)"
