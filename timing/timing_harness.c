@@ -158,19 +158,27 @@ static uint64_t xorshift64(void)
 }
 
 /*
- * random_class — draw a random input-class bit for one dudect measurement.
+ * random_class — draw a pseudorandom input-class bit for one dudect measurement.
  *
  * Canonical dudect (Reparaz, Balasch & Verbauwhede, 2017) assigns each
- * measurement to a class at RANDOM so that periodic measurement noise (SMIs, a
- * brief frequency dip on the isolated core) is uncorrelated with class and
- * cancels in the t-test. Deterministic alternation (class = i & 1) instead
- * ALIASES with such transients — in phase-aligned runs the transient lands
- * preferentially on one class, producing large, bimodal, single-class |t|
- * spikes that are pure artefact. This bit only fast ops (~21 ns/iter vs
- * µs-scale transients); the long ladder averaged them out. See issue #72: with
- * i & 1, bare-metal fadd hit |t|=218 / fred 265; randomising drops them to
- * ~12 / ~6 while scalar_multiply_ct stays flat (a real leak correlates with the
- * class, not the time index, so detection power is unchanged).
+ * measurement to a class pseudorandomly rather than by a fixed cadence, so that
+ * periodic measurement noise (SMIs, a brief frequency dip on the isolated core)
+ * is uncorrelated with class and cancels in the t-test. Deterministic period-2
+ * alternation (class = i & 1) instead ALIASES with such transients — in
+ * phase-aligned runs the transient lands preferentially on one class, producing
+ * large, bimodal, single-class |t| spikes that are pure artefact. Only fast ops
+ * are affected (~21 ns/iter vs µs-scale transients); the ~256x slower ladder
+ * averages transients out. See issue #72: under i & 1, bare-metal fadd hit
+ * |t| = 218 / fred 265; drawing the class from the PRNG drops them to ~12 / ~6
+ * while scalar_multiply_ct stays flat (a real leak correlates with the class,
+ * not the time index, so detection power is unchanged).
+ *
+ * The bit comes from the existing xorshift64 stream. What breaks the aliasing is
+ * the PRNG's APERIODICITY (period ~2^64), NOT per-run variation: an asynchronous
+ * hardware transient cannot phase-lock to a ~2^64-period sequence, so the fixed
+ * seed — which keeps inputs reproducible across runs by design (see xorshift64
+ * above) — is sufficient and intentional. Reseeding from a runtime clock would
+ * gain nothing here and would forfeit that reproducibility.
  */
 static int random_class(void)
 {
