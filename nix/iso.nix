@@ -156,7 +156,18 @@ in
     # SSH in for interactive tuning.
     services.openssh = {
       enable = true;
-      settings.PermitRootLogin = "prohibit-password"; # key-only root
+      settings = {
+        PermitRootLogin = "prohibit-password"; # key-only root
+        # Defence-in-depth: this is a key-only appliance, so pin the whole
+        # password/interactive surface off rather than leaning on upstream
+        # defaults. The empty-password installer `nixos` account is remotely
+        # inert today ONLY because sshd's PermitEmptyPasswords defaults to no and
+        # the PAM auth line carries no nullok; a future base-profile change could
+        # silently reopen that. No mkForce needed — the installer profile leaves
+        # these at the module default (true), so a plain assignment overrides.
+        PasswordAuthentication = false;
+        KbdInteractiveAuthentication = false;
+      };
     };
     users.users.root.openssh.authorizedKeys.keyFiles = [ ./debug-ssh-authorized-keys ];
     networking.hostName = lib.mkForce "secp256k1-debug";
