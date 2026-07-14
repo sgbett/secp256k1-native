@@ -83,9 +83,14 @@ THRESHOLD="4.5"
 # On the reference machine (gcc 15.1, quiet, random-class harness) the worst op is
 # jp_add_internal, observed across sweeps at mean ~16-23 / max ~37-54; the ARTEFACT
 # mean bound (35) sits above that with margin, the LENIENT bound (15) hugs the
-# near-flat ops (mean ~0.6-5), and both are far below a compiler-reconstructed-
-# branch signature, which would drive the MEAN into the tens-to-hundreds and hold
-# it there (cf. the issue-#25 ladder leak, |t| ≈ 21, STABLE across every run).
+# near-flat ops (mean ~0.6-5). The lenient bounds are NOT the primary leak detector
+# for these ops — note a #25-magnitude leak (|t| ≈ 21) would slip under the 35
+# artefact bound. That's fine: jp_add/fsub are point/field building blocks, not
+# secret-scalar ops, so a secret-correlated branch in them surfaces in the STRICT
+# scalar_multiply_ct (gated at 4.5, where the #25 leak read ~21 and was caught with
+# wide margin) and in the deterministic ctgrind pass — those are the security gate;
+# the lenient bounds just pin the benign artefact per toolchain and flag gross
+# regressions in the near-flat ops.
 # Full labels, not substrings: `scalar_add` is intentionally ABSENT — the harness
 # emits no scalar_add dudect line, so listing it would falsely imply coverage.
 # (If scalar_add ever gets a dudect test, add its label here.)
