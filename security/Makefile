@@ -48,8 +48,15 @@ dfuzz: dfuzz_harness.c $(EXT_SRCS) $(STUB_SRC)
 # default include path (e.g. `-isystem <valgrind.dev>/include` on nix, where the
 # header lives in valgrind's separate `dev` output). Empty otherwise.
 CTGRIND_VG_CFLAGS ?=
+# Build at -O2 to MATCH THE SHIPPED CODEGEN (extconf.rb appends -O2). The whole
+# point of the deterministic secret-poisoning check is to catch a compiler-
+# reconstructed branch, and that reconstruction is optimisation-specific — the
+# advisory-0001 GCC 14/15 select-branchification only appears at -O2 (-O0/-O1
+# stay constant-time). A clean -O1 ctgrind run would therefore NOT validate the
+# code that actually ships, leaving the widened lenient timing tier (jp_add/fsub)
+# without a deterministic backstop on the codegen it permits.
 ctgrind: ctgrind_harness.c $(EXT_SRCS) $(STUB_SRC)
-	$(CC) -O1 -g $(BASEFLAGS) $(CTGRIND_VG_CFLAGS) $^ -lm -o ctgrind_harness
+	$(CC) -O2 -g $(BASEFLAGS) $(CTGRIND_VG_CFLAGS) $^ -lm -o ctgrind_harness
 
 asan: asan_sweep.c $(EXT_SRCS) $(STUB_SRC)
 	$(CC) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
