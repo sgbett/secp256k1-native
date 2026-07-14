@@ -32,8 +32,9 @@
 #   GATE_DUDECT_RUNS N dudect runs per compiler            (default: 20)
 #   GATE_OUT         results directory                     (default: ./gate-results)
 #   GATE_TIMEOUT     per-step timeout, seconds             (default: 1800)
-#   GATE_LENIENT_MEAN  mean|t| bound for operand-artefact ops (default: 35)
-#   GATE_LENIENT_MAX   loose max|t| gross-anomaly backstop      (default: 75)
+#   GATE_ARTEFACT_MEAN mean|t| bound for the elevated ops (jp_add/fsub) (default: 35)
+#   GATE_LENIENT_MEAN  mean|t| bound for the near-flat field ops        (default: 15)
+#   GATE_LENIENT_MAX   loose max|t| gross-anomaly backstop (all lenient)(default: 75)
 #   GATE_SOURCE_REV / GATE_NIXPKGS_REV  provenance overrides (default: auto)
 #
 # Exit: 0 all building compilers passed · 1 a building compiler leaked/failed a
@@ -57,33 +58,41 @@ GATE_CORE="${GATE_CORE:-}"
 GATE_DUDECT_RUNS="${GATE_DUDECT_RUNS:-20}"
 GATE_OUT="${GATE_OUT:-$ROOT/gate-results}"
 GATE_TIMEOUT="${GATE_TIMEOUT:-1800}"
-GATE_LENIENT_MEAN="${GATE_LENIENT_MEAN:-35}"   # lenient (operand-artefact) ops: mean|t| bound (the stable signal)
-GATE_LENIENT_MAX="${GATE_LENIENT_MAX:-75}"     # lenient ops: loose gross-anomaly backstop (per-run max is noisy here)
+GATE_ARTEFACT_MEAN="${GATE_ARTEFACT_MEAN:-35}" # large-artefact ops (jp_add, fsub): wide mean|t| bound
+GATE_LENIENT_MEAN="${GATE_LENIENT_MEAN:-15}"   # near-flat field ops (fadd, fred, fneg): tighter mean|t| bound
+GATE_LENIENT_MAX="${GATE_LENIENT_MAX:-75}"     # all lenient ops: loose gross-anomaly backstop (per-run max is noisy)
 THRESHOLD="4.5"
 
-# Ops whose timing MUST be flat (secret-dependent inputs) — any run over 4.5 is a
-# fail. The field/point ops carry a benign operand-value MULTIPLIER artefact (the
-# Zen multiplier's latency depends on operand values; ctgrind confirms no secret
-# reaches a branch), so they are LENIENT: marginal excursions are tolerated,
-# flagged only if mean|t| exceeds GATE_LENIENT_MEAN or any single run exceeds
-# GATE_LENIENT_MAX. The security gate is the STRICT ops (scalar_*, 0/20 at |t|<4.5)
-# plus the deterministic ctgrind pass — the lenient ops are diagnostic.
+# Three tiers, so a currently-flat op can't regress up to the widest bound
+# unnoticed. The field/point ops carry a benign operand-value artefact (ctgrind
+# confirms no secret reaches a branch), but of very different magnitude, so they
+# get bounds scoped to the op that needs them, NOT one global relaxation:
+#   1. STRICT (scalar_*): secret-dependent inputs, MUST be flat — any run at or
+#      over 4.5 is a fail. These plus the ctgrind pass are the security gate.
+#   2. ARTEFACT (jp_add, fsub): the elevated ops — jp_add's Zen-MULTIPLIER
+#      operand-value latency (Z=1 vs non-trivial Z), fsub's magnitude-asymmetric
+#      borrow path. Wide mean bound GATE_ARTEFACT_MEAN.
+#   3. LENIENT (fadd, fred, fneg): near-flat, kept on a TIGHTER mean bound
+#      GATE_LENIENT_MEAN so a stable regression in one of them is still caught.
 #
-# The lenient bounds are CALIBRATED PER PINNED TOOLCHAIN, re-derived from the
-# authoritative bare-metal sweep (issue #74) whenever the compiler changes — they
-# are an artefact floor, NOT loosen-to-green. The MEAN is the stable, gated
-# signal; the per-run MAX is noisy for these ~20 ns ops (it swings run-to-run) so
-# GATE_LENIENT_MAX is only a loose gross-anomaly backstop, not a spike detector.
-# On the reference machine (gcc 15.1, quiet, random-class harness) the worst
-# artefact op is jp_add_internal, observed across sweeps at mean ~16-23 / max
-# ~37-51; 35 / 75 sit above that envelope with margin yet far below a
-# compiler-reconstructed-branch signature, which would drive the MEAN into the
-# tens-to-hundreds and hold it there (cf. the issue-#25 ladder leak, |t| ≈ 21,
-# STABLE across every run, on a STRICT op).
+# The bounds are CALIBRATED PER PINNED TOOLCHAIN, re-derived from the authoritative
+# bare-metal sweep (issue #74) whenever the compiler changes — an artefact floor,
+# NOT loosen-to-green. The MEAN is the stable, gated signal; the per-run MAX is
+# noisy for these ~20 ns ops (it swings run-to-run) so GATE_LENIENT_MAX is only a
+# loose gross-anomaly backstop shared by both lenient tiers, not a spike detector.
+# On the reference machine (gcc 15.1, quiet, random-class harness) the worst op is
+# jp_add_internal, observed across sweeps at mean ~16-23 / max ~37-54; the ARTEFACT
+# mean bound (35) sits above that with margin, the LENIENT bound (15) hugs the
+# near-flat ops (mean ~0.6-5), and both are far below a compiler-reconstructed-
+# branch signature, which would drive the MEAN into the tens-to-hundreds and hold
+# it there (cf. the issue-#25 ladder leak, |t| ≈ 21, STABLE across every run).
 # Full labels, not substrings: `scalar_add` is intentionally ABSENT — the harness
 # emits no scalar_add dudect line, so listing it would falsely imply coverage.
 # (If scalar_add ever gets a dudect test, add its label here.)
 STRICT_RE='scalar_multiply_ct_internal|scalar_mul_internal|scalar_reduce|scalar_inv_internal'
+# The elevated operand-value-artefact ops that get the WIDE lenient mean bound;
+# every other non-strict op gets the tighter GATE_LENIENT_MEAN.
+ARTEFACT_RE='jp_add_internal|fsub_internal'
 
 mkdir -p "$GATE_OUT"
 REPORT="$GATE_OUT/timing-report.txt"
@@ -148,7 +157,7 @@ fi
   echo "cur freq    : ${cur_khz} kHz (stamped to catch throttling)"
   echo "source rev  : $src_rev"
   echo "nixpkgs rev : $npk_rev"
-  echo "dudect runs : $GATE_DUDECT_RUNS   threshold |t|<$THRESHOLD (strict) / mean|t|<$GATE_LENIENT_MEAN (operand-artefact ops)"
+  echo "dudect runs : $GATE_DUDECT_RUNS   threshold |t|<$THRESHOLD (strict) / mean|t|<$GATE_ARTEFACT_MEAN (jp_add,fsub) / <$GATE_LENIENT_MEAN (other field ops) / max<$GATE_LENIENT_MAX"
   echo "compilers   : $GATE_COMPILERS"
   echo "-------------------------------- machine state (did the quiet config take?) --"
   echo "cmdline     : $ms_cmdline"
@@ -288,7 +297,7 @@ for cc in $GATE_COMPILERS; do
       [ "$runs_ok" -lt "$GATE_DUDECT_RUNS" ] && \
         log "  dudect  : note — only $runs_ok/$GATE_DUDECT_RUNS runs produced output"
       # Aggregate per op: n_over threshold, max|t|, mean|t|; apply strict/lenient.
-      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v lmean="$GATE_LENIENT_MEAN" -v lmax="$GATE_LENIENT_MAX" '
+      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v artefact="$ARTEFACT_RE" -v amean="$GATE_ARTEFACT_MEAN" -v lmean="$GATE_LENIENT_MEAN" -v lmax="$GATE_LENIENT_MAX" '
         /^dudect:/ {
           label=$2; tv=""
           # dudect prints "t=%+9.4f": a standalone "t=" then the value for small
@@ -299,7 +308,7 @@ for cc in $GATE_COMPILERS; do
           for (i=1; i<=NF; i++) if ($i ~ /^t=/) { tv=$i; sub(/^t=/,"",tv); if (tv=="") tv=$(i+1); break }
           if (tv=="") { bad++; next }
           a=tv+0; if(a<0)a=-a
-          n[label]++; sum[label]+=a; if(a>mx[label])mx[label]=a; if(a>thr)ov[label]++
+          n[label]++; sum[label]+=a; if(a>mx[label])mx[label]=a; if(a>=thr)ov[label]++
         }
         END {
           anyfail=0
@@ -308,15 +317,23 @@ for cc in $GATE_COMPILERS; do
           for (l in n) {
             mean=sum[l]/n[l]
             isstrict = (l ~ strict)
-            # Lenient (operand-artefact) ops are gated on the MEAN (the stable
-            # signal on this hardware). The per-run max is noisy for these fast
-            # ops, so lmax is only a loose gross-anomaly backstop (see the
-            # GATE_LENIENT_MAX rationale above), not a spike detector.
-            if (isstrict) { fail = (ov[l]>0) } else { fail = (mean>lmean || mx[l]>lmax) }
+            isartefact = (l ~ artefact)
+            # Strict ops: fail if any run is at/over 4.5. Lenient ops are gated on
+            # the MEAN (the stable signal) against a per-tier bound — the wider
+            # amean for the elevated artefact ops (jp_add/fsub), the tighter lmean
+            # for the near-flat ones — plus a shared loose max backstop (per-run
+            # max is noisy for these fast ops, so lmax is not a spike detector).
+            # Comparisons are >= so a value exactly at the bound fails (fail-closed).
+            if (isstrict) {
+              fail = (ov[l] > 0); tier = "[strict]"
+            } else if (isartefact) {
+              fail = (mean >= amean || mx[l] >= lmax); tier = "[artefact]"
+            } else {
+              fail = (mean >= lmean || mx[l] >= lmax); tier = "[lenient]"
+            }
             if (fail) anyfail=1
             printf "    %-28s runs=%d over%.1f=%d max|t|=%.2f mean|t|=%.2f %s%s\n",
-                   l, n[l], thr, ov[l]+0, mx[l], mean,
-                   (isstrict?"[strict]":"[lenient]"), (fail?" <== FAIL":"")
+                   l, n[l], thr, ov[l]+0, mx[l], mean, tier, (fail?" <== FAIL":"")
           }
           exit anyfail
         }' "$work/dudect.raw")"
