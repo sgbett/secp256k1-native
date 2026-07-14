@@ -35,6 +35,7 @@
 #   GATE_ARTEFACT_MEAN mean|t| bound for the elevated ops (jp_add/fsub) (default: 35)
 #   GATE_LENIENT_MEAN  mean|t| bound for the near-flat field ops        (default: 15)
 #   GATE_LENIENT_MAX   loose max|t| gross-anomaly backstop (all lenient)(default: 75)
+#   GATE_STRICT_OVER_PCT  strict ops: max %% of runs |t|>=4.5 tolerated  (default: 10)
 #   GATE_SOURCE_REV / GATE_NIXPKGS_REV  provenance overrides (default: auto)
 #
 # Exit: 0 all building compilers passed · 1 a building compiler leaked/failed a
@@ -61,6 +62,7 @@ GATE_TIMEOUT="${GATE_TIMEOUT:-1800}"
 GATE_ARTEFACT_MEAN="${GATE_ARTEFACT_MEAN:-35}" # large-artefact ops (jp_add, fsub): wide mean|t| bound
 GATE_LENIENT_MEAN="${GATE_LENIENT_MEAN:-15}"   # near-flat field ops (fadd, fred, fneg): tighter mean|t| bound
 GATE_LENIENT_MAX="${GATE_LENIENT_MAX:-75}"     # all lenient ops: loose gross-anomaly backstop (per-run max is noisy)
+GATE_STRICT_OVER_PCT="${GATE_STRICT_OVER_PCT:-10}" # strict ops: fail if >this% of runs are |t|>=4.5 (tolerate lone transients)
 THRESHOLD="4.5"
 
 # Three tiers, so a currently-flat op can't regress up to the widest bound
@@ -165,7 +167,7 @@ fi
   echo "cur freq    : ${cur_khz} kHz (stamped to catch throttling)"
   echo "source rev  : $src_rev"
   echo "nixpkgs rev : $npk_rev"
-  echo "dudect runs : $GATE_DUDECT_RUNS   threshold |t|<$THRESHOLD (strict) / mean|t|<$GATE_ARTEFACT_MEAN (jp_add,fsub) / <$GATE_LENIENT_MEAN (other field ops) / max<$GATE_LENIENT_MAX"
+  echo "dudect runs : $GATE_DUDECT_RUNS   |t|<$THRESHOLD strict (fail if >$GATE_STRICT_OVER_PCT% of runs over) / mean|t|<$GATE_ARTEFACT_MEAN (jp_add,fsub) / <$GATE_LENIENT_MEAN (other field ops) / max<$GATE_LENIENT_MAX"
   echo "compilers   : $GATE_COMPILERS"
   echo "-------------------------------- machine state (did the quiet config take?) --"
   echo "cmdline     : $ms_cmdline"
@@ -305,7 +307,7 @@ for cc in $GATE_COMPILERS; do
       [ "$runs_ok" -lt "$GATE_DUDECT_RUNS" ] && \
         log "  dudect  : note — only $runs_ok/$GATE_DUDECT_RUNS runs produced output"
       # Aggregate per op: n_over threshold, max|t|, mean|t|; apply strict/lenient.
-      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v artefact="$ARTEFACT_RE" -v amean="$GATE_ARTEFACT_MEAN" -v lmean="$GATE_LENIENT_MEAN" -v lmax="$GATE_LENIENT_MAX" '
+      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v artefact="$ARTEFACT_RE" -v amean="$GATE_ARTEFACT_MEAN" -v lmean="$GATE_LENIENT_MEAN" -v lmax="$GATE_LENIENT_MAX" -v spct="$GATE_STRICT_OVER_PCT" '
         /^dudect:/ {
           label=$2; tv=""
           # dudect prints "t=%+9.4f": a standalone "t=" then the value for small
@@ -326,14 +328,22 @@ for cc in $GATE_COMPILERS; do
             mean=sum[l]/n[l]
             isstrict = (l ~ strict)
             isartefact = (l ~ artefact)
-            # Strict ops: fail if any run is at/over 4.5. Lenient ops are gated on
-            # the MEAN (the stable signal) against a per-tier bound — the wider
-            # amean for the elevated artefact ops (jp_add/fsub), the tighter lmean
-            # for the near-flat ones — plus a shared loose max backstop (per-run
-            # max is noisy for these fast ops, so lmax is not a spike detector).
+            # Strict ops: fail if MORE THAN spct% of runs are at/over 4.5. A
+            # compiler-reconstructed branch is compiled IN, so it shows in
+            # essentially EVERY run (the #25 ladder leak was 20/20); a lone
+            # measurement transient hits one run. Gating on the fraction-over
+            # therefore distinguishes the two WITHOUT masking a real leak (a leak
+            # is ~100% of runs, far above spct) while not redding the gate on a
+            # single blip. Scales with N: at spct=10 and N=20 it tolerates <=2
+            # over-threshold runs (fails at 3); at small N it stays effectively
+            # strict (N=2 -> any run over fails). Lenient ops are gated on the
+            # MEAN (the stable signal) against a per-tier bound — the wider amean
+            # for the elevated artefact ops (jp_add/fsub), the tighter lmean for
+            # the near-flat ones — plus a shared loose max backstop (per-run max
+            # is noisy for these fast ops, so lmax is not a spike detector).
             # Comparisons are >= so a value exactly at the bound fails (fail-closed).
             if (isstrict) {
-              fail = (ov[l] > 0); tier = "[strict]"
+              fail = (ov[l]*100 > n[l]*spct); tier = "[strict]"
             } else if (isartefact) {
               fail = (mean >= amean || mx[l] >= lmax); tier = "[artefact]"
             } else {
