@@ -74,7 +74,7 @@ Record the |t| for each measured op (`fred`, `fsub`, `fneg`, `fadd`, `scalar_mul
 
 - **|t| < 4.5** across a long run ⇒ no timing leak detectable at this sample size. This is the pass condition the project already uses.
 - **|t| ≥ 4.5** ⇒ investigate. First rule out measurement artefacts: re-run, confirm the machine is quiet, confirm turbo is off. A *persistent*, reproducible high |t| that survives a quiet bare-metal run is a real finding — triage it per the "Security findings" process in `CLAUDE.md`.
-- Note the known marginal artefact already documented in `risks.md` (`jp_add_internal` isolation, |t| ≈ 7.5 from operand-value microarchitectural variation, not a branch) — don't re-flag that as new.
+- Note the known marginal artefact already documented in `risks.md` (`jp_add_internal` isolation, operand-value microarchitectural variation, not a branch) — don't re-flag that operand-value artefact as new. Its magnitude is toolchain-dependent (|t| ≈ 7.5 on GCC 15.2, ~22 on GCC 15.1), which is why the gate's lenient bound is calibrated per pinned toolchain.
 
 ### 5. Record it
 
