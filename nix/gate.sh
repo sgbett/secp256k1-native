@@ -15,7 +15,7 @@
 #   4. rspec — functional
 #   5. ctgrind (valgrind secret-poisoning) — deterministic constant-time
 #   6. dudect timing harness, N runs, pinned to the isolated core on bare metal
-#      — parse per-op |t|, aggregate (n_over_4.5, max|t|, mean|t|)
+#      — parse per-op |t|, aggregate (n_ge_4.5, max|t|, mean|t|)
 # then writes a provenance-stamped row to the results dir *incrementally* (so a
 # mid-sweep power loss costs only the in-flight compiler). A compiler that fails
 # to build/deps is recorded SKIPPED and the sweep continues (best-effort back to
@@ -89,10 +89,13 @@ THRESHOLD="4.5"
 # Full labels, not substrings: `scalar_add` is intentionally ABSENT — the harness
 # emits no scalar_add dudect line, so listing it would falsely imply coverage.
 # (If scalar_add ever gets a dudect test, add its label here.)
-STRICT_RE='scalar_multiply_ct_internal|scalar_mul_internal|scalar_reduce|scalar_inv_internal'
+# Anchored (^(...)$) so a match is an EXACT full label, per the note above — a
+# future dudect label that merely contained one of these as a substring must not
+# be mis-tiered.
+STRICT_RE='^(scalar_multiply_ct_internal|scalar_mul_internal|scalar_reduce|scalar_inv_internal)$'
 # The elevated operand-value-artefact ops that get the WIDE lenient mean bound;
 # every other non-strict op gets the tighter GATE_LENIENT_MEAN.
-ARTEFACT_RE='jp_add_internal|fsub_internal'
+ARTEFACT_RE='^(jp_add_internal|fsub_internal)$'
 
 mkdir -p "$GATE_OUT"
 REPORT="$GATE_OUT/timing-report.txt"
@@ -332,8 +335,8 @@ for cc in $GATE_COMPILERS; do
               fail = (mean >= lmean || mx[l] >= lmax); tier = "[lenient]"
             }
             if (fail) anyfail=1
-            printf "    %-28s runs=%d over%.1f=%d max|t|=%.2f mean|t|=%.2f %s%s\n",
-                   l, n[l], thr, ov[l]+0, mx[l], mean, tier, (fail?" <== FAIL":"")
+            printf "    %-28s runs=%d %d>=%.1f max|t|=%.2f mean|t|=%.2f %s%s\n",
+                   l, n[l], ov[l]+0, thr, mx[l], mean, tier, (fail?" <== FAIL":"")
           }
           exit anyfail
         }' "$work/dudect.raw")"

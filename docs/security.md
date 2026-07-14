@@ -159,7 +159,7 @@ The harness assigns each measurement to an input class **pseudorandomly** — a 
 
 The reproducible [reference machine](reference-machine.md) re-runs the same sweep on a toolchain pinned *distinct* from the issue-#25 box: **NixOS (nixpkgs `ac62194`), GCC 15.1, kernel 6.12.63** on the same AMD Ryzen 9 9950X (microcode `0xb404023`), with the C-state disable, the random-class harness ([issue #72](#randomised-class-assignment-issue-72)), and `copytoram` (USB idle) all active. N=20:
 
-| Function | mean \|t\| | max \|t\| | runs over 4.5 | Result |
+| Function | mean \|t\| | max \|t\| | runs \|t\|≥4.5 | Result |
 |---|---|---|---|---|
 | `scalar_multiply_ct_internal` | 0.69 | 1.48 | 0 / 20 | **PASS** (strict) |
 | `scalar_mul_internal` | 0.65 | 1.72 | 0 / 20 | PASS (strict) |
