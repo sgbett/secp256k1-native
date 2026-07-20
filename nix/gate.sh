@@ -36,6 +36,7 @@
 #   GATE_LENIENT_MEAN  mean|t| bound for the near-flat field ops        (default: 15)
 #   GATE_LENIENT_MAX   loose max|t| gross-anomaly backstop (all lenient)(default: 75)
 #   GATE_STRICT_OVER_PCT  strict ops: max %% of runs |t|>=4.5 tolerated  (default: 10)
+#   GATE_CTGRIND_VG_CFLAGS  -isystem path to <valgrind/memcheck.h> for ctgrind (default: "")
 #   GATE_SOURCE_REV / GATE_NIXPKGS_REV  provenance overrides (default: auto)
 #
 # Exit: 0 all building compilers passed · 1 a building compiler leaked/failed a
@@ -69,8 +70,10 @@ THRESHOLD="4.5"
 # unnoticed. The field/point ops carry a benign operand-value artefact (ctgrind
 # confirms no secret reaches a branch), but of very different magnitude, so they
 # get bounds scoped to the op that needs them, NOT one global relaxation:
-#   1. STRICT (scalar_*): secret-dependent inputs, MUST be flat — any run at or
-#      over 4.5 is a fail. These plus the ctgrind pass are the security gate.
+#   1. STRICT (scalar_*): secret-dependent inputs, MUST be flat — fail when MORE
+#      than GATE_STRICT_OVER_PCT%% of runs are at/over 4.5 (a reconstructed branch
+#      shows in ~every run, a lone transient in one; see the aggregation below).
+#      These plus the ctgrind pass are the security gate.
 #   2. ARTEFACT (jp_add, fsub): the elevated ops — jp_add's Zen-MULTIPLIER
 #      operand-value latency (Z=1 vs non-trivial Z), fsub's magnitude-asymmetric
 #      borrow path. Wide mean bound GATE_ARTEFACT_MEAN.
