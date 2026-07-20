@@ -34,8 +34,8 @@
 #   GATE_TIMEOUT     per-step timeout, seconds             (default: 1800)
 #   GATE_ARTEFACT_MEAN mean|t| bound for the elevated ops (jp_add/fsub) (default: 35)
 #   GATE_LENIENT_MEAN  mean|t| bound for the near-flat field ops        (default: 15)
-#   GATE_LENIENT_MAX   loose max|t| gross-anomaly backstop (all lenient)(default: 75)
-#   GATE_STRICT_OVER_PCT  strict ops: max %% of runs |t|>=4.5 tolerated  (default: 10)
+#   GATE_LENIENT_MAX   loose max|t| gross-anomaly backstop (all lenient)(default: 100)
+#   GATE_STRICT_OVER_PCT  strict ops: max %% of runs |t|>=4.5 tolerated  (default: 5)
 #   GATE_CTGRIND_VG_CFLAGS  -isystem path to <valgrind/memcheck.h> for ctgrind (default: "")
 #   GATE_SOURCE_REV / GATE_NIXPKGS_REV  provenance overrides (default: auto)
 #
@@ -62,8 +62,8 @@ GATE_OUT="${GATE_OUT:-$ROOT/gate-results}"
 GATE_TIMEOUT="${GATE_TIMEOUT:-1800}"
 GATE_ARTEFACT_MEAN="${GATE_ARTEFACT_MEAN:-35}" # large-artefact ops (jp_add, fsub): wide mean|t| bound
 GATE_LENIENT_MEAN="${GATE_LENIENT_MEAN:-15}"   # near-flat field ops (fadd, fred, fneg): tighter mean|t| bound
-GATE_LENIENT_MAX="${GATE_LENIENT_MAX:-75}"     # all lenient ops: loose gross-anomaly backstop (per-run max is noisy)
-GATE_STRICT_OVER_PCT="${GATE_STRICT_OVER_PCT:-10}" # strict ops: fail if >this% of runs are |t|>=4.5 (tolerate lone transients)
+GATE_LENIENT_MAX="${GATE_LENIENT_MAX:-100}"    # all lenient ops: loose gross-anomaly backstop (per-run max is noisy)
+GATE_STRICT_OVER_PCT="${GATE_STRICT_OVER_PCT:-5}"  # strict ops: fail if >this% of runs are |t|>=4.5 (tolerate a lone transient)
 THRESHOLD="4.5"
 
 # Three tiers, so a currently-flat op can't regress up to the widest bound
@@ -85,11 +85,13 @@ THRESHOLD="4.5"
 # NOT loosen-to-green. The MEAN is the stable, gated signal; the per-run MAX is
 # noisy for these ~20 ns ops (it swings run-to-run) so GATE_LENIENT_MAX is only a
 # loose gross-anomaly backstop shared by both lenient tiers, not a spike detector.
-# On the reference machine (gcc 15.1, quiet, random-class harness) the worst op is
-# jp_add_internal, observed across sweeps at mean ~16-23 / max ~37-54; the ARTEFACT
-# mean bound (35) sits above that with margin, the LENIENT bound (15) hugs the
-# near-flat ops (mean ~0.6-5). The lenient bounds are NOT the primary leak detector
-# for these ops — note a #25-magnitude leak (|t| ≈ 21) would slip under the 35
+# On the reference machine (gcc 15.1, quiet, random-class harness, VANILLA -O2)
+# the worst op is jp_add_internal, observed across sweeps at mean ~16-24 / max
+# ~37-71 (the max swings run-to-run); the ARTEFACT mean bound (35) sits above the
+# mean with margin and the max backstop (100) above the noisy max envelope, the
+# LENIENT bound (15) hugs the near-flat ops (mean ~0.6-5). The lenient bounds are
+# NOT the primary leak detector for these ops — note a #25-magnitude leak
+# (|t| ≈ 21) would slip under the 35
 # artefact bound. That's fine: jp_add/fsub are point/field building blocks, not
 # secret-scalar ops, so a secret-correlated branch in them surfaces in the STRICT
 # scalar_multiply_ct (gated at 4.5, where the #25 leak read ~21 and was caught with
@@ -264,8 +266,13 @@ for cc in $GATE_COMPILERS; do
   # empty on a distro where the header is already found. Passed EXPLICITLY as a
   # make var because a bare NIX_CFLAGS_COMPILE is ignored by nix's salted
   # cc-wrapper.
+  # NIX_HARDENING_ENABLE="" to match the SHIPPED vanilla codegen (as the extension
+  # build above does): the nix cc-wrapper's default hardening alters codegen, and a
+  # compiler-reconstructed branch is optimisation- AND flag-specific — ctgrind must
+  # exercise the same bytes that ship, or the deterministic backstop verifies the
+  # wrong binary. (Advisory 0001's reconstruction is a vanilla -O2 phenomenon.)
   make -C security clean >/dev/null 2>&1
-  if step make -C security ctgrind CC="$cc" CTGRIND_VG_CFLAGS="${GATE_CTGRIND_VG_CFLAGS:-}" >"$work/ctg.log" 2>&1 \
+  if NIX_HARDENING_ENABLE="" step make -C security ctgrind CC="$cc" CTGRIND_VG_CFLAGS="${GATE_CTGRIND_VG_CFLAGS:-}" >"$work/ctg.log" 2>&1 \
      && step valgrind -q --error-exitcode=1 ./security/ctgrind_harness >>"$work/ctg.log" 2>&1; then
     ctgrind="PASS"
     log "  ctgrind : PASS"
@@ -276,8 +283,11 @@ for cc in $GATE_COMPILERS; do
   fi
 
   # --- 6. dudect timing, N runs ----------------------------------------------
+  # Vanilla (NIX_HARDENING_ENABLE="") too, so the measured timing is the SHIPPED
+  # codegen's, not the hardened wrapper default — the calibrated bounds must
+  # describe the binary users run.
   make -C timing clean >/dev/null 2>&1
-  if ! step make -C timing CC="$cc" >"$work/timing.log" 2>&1; then
+  if ! NIX_HARDENING_ENABLE="" step make -C timing CC="$cc" >"$work/timing.log" 2>&1; then
     log "  dudect  : FAIL — timing harness build failed"; cc_pass=0
   else
     : > "$work/dudect.raw"
@@ -337,14 +347,17 @@ for cc in $GATE_COMPILERS; do
             # measurement transient hits one run. Gating on the fraction-over
             # therefore distinguishes the two WITHOUT masking a real leak (a leak
             # is ~100% of runs, far above spct) while not redding the gate on a
-            # single blip. Scales with N: at spct=10 and N=20 it tolerates <=2
-            # over-threshold runs (fails at 3); at small N it stays effectively
-            # strict (N=2 -> any run over fails). Lenient ops are gated on the
-            # MEAN (the stable signal) against a per-tier bound — the wider amean
-            # for the elevated artefact ops (jp_add/fsub), the tighter lmean for
-            # the near-flat ones — plus a shared loose max backstop (per-run max
-            # is noisy for these fast ops, so lmax is not a spike detector).
-            # Comparisons are >= so a value exactly at the bound fails (fail-closed).
+            # single blip. Scales with N: at spct=5 and N=20 it tolerates <=1
+            # over-threshold run (fails at 2); at small N it stays effectively
+            # strict (N=2 -> any run over fails). ctgrind (deterministic, vanilla
+            # -O2) is the load-bearing backstop for the marginal band this cannot
+            # resolve (a weak/rare-bit partial branch < spct% of runs). Lenient
+            # ops are gated on the MEAN (the stable signal) against a per-tier
+            # bound — the wider amean for the elevated artefact ops (jp_add/fsub),
+            # the tighter lmean for the near-flat ones — plus a shared loose max
+            # backstop (per-run max is noisy for these fast ops, not a spike det).
+            # The mean/max bounds compare >= (a value exactly at the bound fails,
+            # fail-closed); the strict fraction uses > (tolerate exactly spct%).
             if (isstrict) {
               fail = (ov[l]*100 > n[l]*spct); tier = "[strict]"
             } else if (isartefact) {
