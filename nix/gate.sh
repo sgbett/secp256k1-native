@@ -67,16 +67,28 @@ GATE_STRICT_OVER_PCT="${GATE_STRICT_OVER_PCT:-5}"  # strict ops: fail if >this% 
 THRESHOLD="4.5"
 
 # Three tiers, so a currently-flat op can't regress up to the widest bound
-# unnoticed. The field/point ops carry a benign operand-value artefact (ctgrind
-# confirms no secret reaches a branch), but of very different magnitude, so they
-# get bounds scoped to the op that needs them, NOT one global relaxation:
+# unnoticed. The field/point ops carry a benign operand-value LATENCY artefact,
+# of very different magnitude, so they get bounds scoped to the op that needs
+# them, NOT one global relaxation. Two channels, two backstops: ctgrind covers
+# the BRANCH/addressing channel (it poisons secrets and catches secret-dependent
+# control flow, but is SILENT on data-dependent instruction latency — so it does
+# NOT, on its own, certify this artefact benign); the operand-latency channel's
+# benignness w.r.t. the SECRET SCALAR is established by the flat STRICT ladder
+# (scalar_multiply_ct), measured end-to-end on the real full-width operand
+# distribution (see tier 2). The tiers:
 #   1. STRICT (scalar_*): secret-dependent inputs, MUST be flat — fail when MORE
 #      than GATE_STRICT_OVER_PCT%% of runs are at/over 4.5 (a reconstructed branch
 #      shows in ~every run, a lone transient in one; see the aggregation below).
 #      These plus the ctgrind pass are the security gate.
 #   2. ARTEFACT (jp_add, fsub): the elevated ops — jp_add's Zen-MULTIPLIER
-#      operand-value latency (Z=1 vs non-trivial Z), fsub's magnitude-asymmetric
-#      borrow path. Wide mean bound GATE_ARTEFACT_MEAN.
+#      operand-value latency (Z=1 vs non-trivial Z), fsub's borrow-path latency.
+#      Both are operand-VALUE effects ctgrind cannot see; the standalone dudect
+#      |t| comes from the test's deliberately magnitude-asymmetric operand classes
+#      (fsub: tiny-vs-full-width) that do NOT occur on secret-derived operands
+#      (always full-width residues mod P). Secret-scalar correlation is caught by
+#      the flat STRICT ladder, not by this standalone tier or by ctgrind. Wide
+#      mean bound GATE_ARTEFACT_MEAN. (A realistic full-width-vs-full-width fsub
+#      test could retire it from this tier — issue #78.)
 #   3. LENIENT (fadd, fred, fneg): near-flat, kept on a TIGHTER mean bound
 #      GATE_LENIENT_MEAN so a stable regression in one of them is still caught.
 #
@@ -93,9 +105,11 @@ THRESHOLD="4.5"
 # NOT the primary leak detector for these ops — note a #25-magnitude leak
 # (|t| ≈ 21) would slip under the 35
 # artefact bound. That's fine: jp_add/fsub are point/field building blocks, not
-# secret-scalar ops, so a secret-correlated branch in them surfaces in the STRICT
-# scalar_multiply_ct (gated at 4.5, where the #25 leak read ~21 and was caught with
-# wide margin) and in the deterministic ctgrind pass — those are the security gate;
+# secret-scalar ops. A secret-correlated BRANCH in them surfaces in BOTH the
+# deterministic ctgrind pass AND the STRICT scalar_multiply_ct (gated at 4.5,
+# where the #25 leak read ~21 and was caught with wide margin); a secret-correlated
+# operand-LATENCY effect, which ctgrind cannot see, surfaces in the STRICT ladder
+# alone, measured flat end-to-end — that is the backstop for this tier;
 # the lenient bounds just pin the benign artefact per toolchain and flag gross
 # regressions in the near-flat ops.
 # Full labels, not substrings: `scalar_add` is intentionally ABSENT — the harness
@@ -335,7 +349,7 @@ for cc in $GATE_COMPILERS; do
       [ "$runs_ok" -lt "$GATE_DUDECT_RUNS" ] && \
         log "  dudect  : note — only $runs_ok/$GATE_DUDECT_RUNS runs produced output"
       # Aggregate per op: n_over threshold, max|t|, mean|t|; apply strict/lenient.
-      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v artefact="$ARTEFACT_RE" -v amean="$GATE_ARTEFACT_MEAN" -v lmean="$GATE_LENIENT_MEAN" -v lmax="$GATE_LENIENT_MAX" -v spct="$GATE_STRICT_OVER_PCT" -v expect="$GATE_EXPECT_LABELS" '
+      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v artefact="$ARTEFACT_RE" -v amean="$GATE_ARTEFACT_MEAN" -v lmean="$GATE_LENIENT_MEAN" -v lmax="$GATE_LENIENT_MAX" -v spct="$GATE_STRICT_OVER_PCT" -v expect="$GATE_EXPECT_LABELS" -v nexp="$runs_ok" '
         /^dudect:/ {
           label=$2; tv=""
           # dudect prints "t=%+9.4f": a standalone "t=" then the value for small
@@ -387,13 +401,32 @@ for cc in $GATE_COMPILERS; do
             printf "    %-28s runs=%d %d>=%.1f max|t|=%.2f mean|t|=%.2f %s%s\n",
                    l, n[l], ov[l]+0, thr, mx[l], mean, tier, (fail?" <== FAIL":"")
           }
-          # Fail closed on any EXPECTED label that never appeared (op removed or
-          # renamed, or a partial-run harness): a silently-dropped op — above all a
-          # strict one — must red the gate, never pass by omission.
+          # Fail closed on coverage anomalies in BOTH directions (principle 1) —
+          # the aggregation tiers only the labels it saw, so guard the label set:
+          #   (a) every EXPECTED label must be present with the FULL run count.
+          #       Absent entirely (op removed/renamed) OR short (a partial-run
+          #       harness that emitted it in only some runs) reds the gate — a
+          #       silently-dropped or under-sampled op, above all a strict one,
+          #       must never pass by omission. Each healthy run emits each label
+          #       exactly once, so the expected per-label count is nexp (=runs_ok).
+          #   (b) every SEEN label must be EXPECTED. A new/renamed op otherwise
+          #       falls through to [lenient] tiering silently; an unknown label
+          #       reds the gate and forces an explicit tier decision in
+          #       GATE_EXPECT_LABELS + the strict/artefact regexes.
           ne = split(expect, elab, " ")
-          for (j=1; j<=ne; j++) if (!(elab[j] in n)) {
+          for (j=1; j<=ne; j++) known[elab[j]] = 1
+          for (j=1; j<=ne; j++) {
+            if (!(elab[j] in n)) {
+              anyfail=1
+              printf "    %-28s MISSING from dudect output <== FAIL\n", elab[j]
+            } else if (nexp+0 > 0 && n[elab[j]] != nexp) {
+              anyfail=1
+              printf "    %-28s incomplete: %d/%d runs <== FAIL\n", elab[j], n[elab[j]], nexp
+            }
+          }
+          for (l in n) if (!(l in known)) {
             anyfail=1
-            printf "    %-28s MISSING from dudect output <== FAIL\n", elab[j]
+            printf "    %-28s UNEXPECTED label (add to GATE_EXPECT_LABELS + tier) <== FAIL\n", l
           }
           exit anyfail
         }' "$work/dudect.raw")"
