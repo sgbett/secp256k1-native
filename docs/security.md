@@ -126,7 +126,7 @@ The fix (see [security advisory GHSA-draft-ct-value-barrier](advisories/0001-com
 
 Measured on the issue-#25 reference machine: **AMD Ryzen 9 9950X (Zen 5), microcode 0xb404023, Ubuntu 26.04 / Linux 7.0.0-14, GCC 15.2.0** — `systemd-detect-virt = none` (true bare metal), turbo/boost off, `performance` governor with min=max, SMT off, harness pinned with `taskset -c` under `chrt -f` real-time scheduling. Each figure is aggregated over **20 runs**.
 
-| Function | mean \|t\| | max \|t\| | runs over 4.5 | Measurements/run | Result |
+| Function | mean \|t\| | max \|t\| | runs \|t\|≥4.5 | Measurements/run | Result |
 |---|---|---|---|---|---|
 | `scalar_multiply_ct_internal` | 0.68 | 1.57 | 0 / 20 | 10,000 | **PASS** |
 | `scalar_mul_internal` | 0.93 | 2.19 | 0 / 20 | 1,000,000 | PASS |

@@ -210,7 +210,7 @@ fi
   echo "cur freq    : ${cur_khz} kHz (stamped to catch throttling)"
   echo "source rev  : $src_rev"
   echo "nixpkgs rev : $npk_rev"
-  echo "dudect runs : $GATE_DUDECT_RUNS   |t|<$THRESHOLD strict (fail if >$GATE_STRICT_OVER_PCT% of runs over) / mean|t|<$GATE_ARTEFACT_MEAN (jp_add,fsub) / <$GATE_LENIENT_MEAN (other field ops) / max<$GATE_LENIENT_MAX / min class n=$GATE_MIN_CLASS_N"
+  echo "dudect runs : $GATE_DUDECT_RUNS   |t|<$THRESHOLD strict (fail if >$GATE_STRICT_OVER_PCT% of runs at/over) / mean|t|<$GATE_ARTEFACT_MEAN (jp_add,fsub) / <$GATE_LENIENT_MEAN (other field ops) / max<$GATE_LENIENT_MAX / min class n=$GATE_MIN_CLASS_N"
   echo "compilers   : $GATE_COMPILERS"
   echo "-------------------------------- machine state (did the quiet config take?) --"
   echo "cmdline     : $ms_cmdline"
