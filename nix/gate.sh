@@ -351,7 +351,10 @@ for cc in $GATE_COMPILERS; do
             # over-threshold run (fails at 2); at small N it stays effectively
             # strict (N=2 -> any run over fails). ctgrind (deterministic, vanilla
             # -O2) is the load-bearing backstop for the marginal band this cannot
-            # resolve (a weak/rare-bit partial branch < spct% of runs). Lenient
+            # resolve (a weak/rare-bit partial branch < spct% of runs) — and it
+            # poisons ALL FOUR strict ops' secret inputs (ladder, scalar_mul,
+            # scalar_reduce, scalar_inv in ctgrind_harness.c), so no strict label
+            # relies on the statistical gate alone. Lenient
             # ops are gated on the MEAN (the stable signal) against a per-tier
             # bound — the wider amean for the elevated artefact ops (jp_add/fsub),
             # the tighter lmean for the near-flat ones — plus a shared loose max

@@ -155,11 +155,18 @@ int main(void)
     }
 
     /* ------------------------------------------------------------------
-     * 4. Scalar arithmetic: scalar_add, scalar_mul, scalar_reduce.
+     * 4. Scalar arithmetic: scalar_add, scalar_mul, scalar_reduce, scalar_inv.
      *    These are used on secret nonces/keys by consumers (e.g. ECDSA
-     *    s = k^-1 (z + r*d)). scalar_inv iterates over the PUBLIC exponent
-     *    N-2 so branching there is expected/safe — but the squaring/mul it
-     *    calls operate on secret data, so we still test scalar_mul.
+     *    s = k^-1 (z + r*d)).
+     *
+     *    scalar_inv iterates over the PUBLIC exponent N-2, so its only branch
+     *    is on a compile-time constant, not the secret. We still poison its
+     *    input and test it directly (empirical over inspected): the secret
+     *    flows through branchless scalar_sqr — which delegates to
+     *    scalar_mul — so poisoning the entry point deterministically verifies
+     *    the whole composition, and guards against a future edit or compiler
+     *    reconstruction introducing a secret-dependent branch on the inversion
+     *    path (cf. the advisory-0001 select-branchification).
      *
      *    Post-#21, scalar_reduce_limbs is fully branchless — the previous
      *    `if (h == 0) continue;` and `if (carry3)` guards in the residual
@@ -185,6 +192,13 @@ int main(void)
         VALGRIND_MAKE_MEM_UNDEFINED(&hi, sizeof(hi));
         VALGRIND_MAKE_MEM_UNDEFINED(&lo, sizeof(lo));
         scalar_reduce(&r, &hi, &lo); consume(&r, "scalar_reduce");
+
+        /* scalar_inv: poison the secret input; the exponent (N-2) is public. */
+        uint256_t inv_in, inv_r;
+        inv_in.d[0]=0x1111111111111111ULL; inv_in.d[1]=0x2222222222222222ULL;
+        inv_in.d[2]=0x3333333333333333ULL; inv_in.d[3]=0x4444444444444444ULL;
+        VALGRIND_MAKE_MEM_UNDEFINED(&inv_in, sizeof(inv_in));
+        scalar_inv_internal(&inv_r, &inv_in); consume(&inv_r, "scalar_inv");
     }
 
     fprintf(stderr, "=== harness completed all calls ===\n");
