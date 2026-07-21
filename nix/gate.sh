@@ -65,10 +65,12 @@ GATE_ARTEFACT_MEAN="${GATE_ARTEFACT_MEAN:-35}" # large-artefact ops (jp_add, fsu
 GATE_LENIENT_MEAN="${GATE_LENIENT_MEAN:-15}"   # near-flat field ops (fadd, fred, fneg): tighter mean|t| bound
 GATE_LENIENT_MAX="${GATE_LENIENT_MAX:-100}"    # all lenient ops: loose gross-anomaly backstop (per-run max is noisy)
 GATE_STRICT_OVER_PCT="${GATE_STRICT_OVER_PCT:-5}"  # strict ops: fail if >this% of runs are |t|>=4.5 (tolerate a lone transient)
-# Minimum samples per dudect class. dudect_t_statistic returns a finite 0.0 when
-# a class has <2 samples (dudect.c), which would pass as clean; a broken class
-# generator (all measurements in one class) or a short/degenerate run is rejected
-# by requiring BOTH classes >= this. Default 100: far below the smallest healthy
+# Minimum samples per dudect class. A FULLY degenerate statistic (a class with <2
+# samples, or both-variances-zero) now returns NAN from dudect_t_statistic, which
+# the gate's nan/inf check reds. This floor catches the DISTINCT finite-but-weak
+# case: a class with 2..minn samples yields a finite but untrustworthy t. A broken
+# class generator (all measurements in one class) or a short run is rejected by
+# requiring BOTH classes >= this. Default 100: far below the smallest healthy
 # per-class count (scalar_inv ~500/class from 1000 measurements; field ops ~750k),
 # far above the degenerate cases.
 GATE_MIN_CLASS_N="${GATE_MIN_CLASS_N:-100}"
