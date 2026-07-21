@@ -386,11 +386,11 @@ for cc in $GATE_COMPILERS; do
             else if ($i ~ /^n0=/) { c0=$i; sub(/^n0=/,"",c0) }
             else if ($i ~ /^n1=/) { c1=$i; sub(/^n1=/,"",c1) }
           }
-          if (tv=="") { bad++; next }
+          if (tv=="") { badparse++; next }
           # Non-finite t (a degenerate Welch denominator prints nan/inf via %f)
           # must fail closed: tv+0 would coerce it to 0 (BSD awk) or nan (gawk)
           # and silently count as a clean sub-threshold run — a fail-open.
-          if (tolower(tv) ~ /nan|inf/) { bad++; next }
+          if (tolower(tv) ~ /nan|inf/) { badnan++; next }
           # Class-count validity floor. dudect now returns NAN for a fully
           # degenerate statistic (a class with <2 samples, or both-variances-zero
           # from a constant/broken timer) — the nan/inf check above reds those.
@@ -399,15 +399,18 @@ for cc in $GATE_COMPILERS; do
           # whose class counts are missing or below minn (a broken class
           # generator bucketing every measurement into one class, or an
           # under-sampled run, has no valid Welch test). Fail closed.
-          if (c0=="" || c1=="") { bad++; next }
-          if (c0+0 < minn || c1+0 < minn) { bad++; next }
+          if (c0=="" || c1=="") { badcount++; next }
+          if (c0+0 < minn || c1+0 < minn) { badcount++; next }
           a=tv+0; if(a<0)a=-a
           n[label]++; sum[label]+=a; if(a>mx[label])mx[label]=a; if(a>=thr)ov[label]++
         }
         END {
           anyfail=0
           # Fail closed on any line whose t could not be parsed — never drop it.
-          if (bad>0) { anyfail=1; printf "    %-28s %d line(s) with unparseable t <== FAIL\n","(parse-error)",bad }
+          # Each reject reason reports separately so a failure names its true cause.
+          if (badparse>0) { anyfail=1; printf "    %-28s %d line(s) with unparseable t <== FAIL\n","(parse-error)",badparse }
+          if (badnan>0)   { anyfail=1; printf "    %-28s %d line(s) with non-finite t (nan/inf) <== FAIL\n","(degenerate-t)",badnan }
+          if (badcount>0) { anyfail=1; printf "    %-28s %d line(s) with missing/under-sampled class counts <== FAIL\n","(under-sampled)",badcount }
           for (l in n) {
             mean=sum[l]/n[l]
             isstrict = (l ~ strict)
