@@ -15,7 +15,7 @@
 #   4. rspec — functional
 #   5. ctgrind (valgrind secret-poisoning) — deterministic constant-time
 #   6. dudect timing harness, N runs, pinned to the isolated core on bare metal
-#      — parse per-op |t|, aggregate (n_over_4.5, max|t|, mean|t|)
+#      — parse per-op |t|, aggregate (n_ge_4.5, max|t|, mean|t|)
 # then writes a provenance-stamped row to the results dir *incrementally* (so a
 # mid-sweep power loss costs only the in-flight compiler). A compiler that fails
 # to build/deps is recorded SKIPPED and the sweep continues (best-effort back to
@@ -32,7 +32,12 @@
 #   GATE_DUDECT_RUNS N dudect runs per compiler            (default: 20)
 #   GATE_OUT         results directory                     (default: ./gate-results)
 #   GATE_TIMEOUT     per-step timeout, seconds             (default: 1800)
-#   GATE_LENIENT_MEAN  mean|t| bound for operand-artefact ops (default: 10)
+#   GATE_ARTEFACT_MEAN mean|t| bound for the elevated ops (jp_add/fsub) (default: 35)
+#   GATE_LENIENT_MEAN  mean|t| bound for the near-flat field ops        (default: 15)
+#   GATE_LENIENT_MAX   loose max|t| gross-anomaly backstop (all lenient)(default: 100)
+#   GATE_STRICT_OVER_PCT  strict ops: max %% of runs |t|>=4.5 tolerated  (default: 5)
+#   GATE_MIN_CLASS_N  min samples per dudect class; reject under-sampled  (default: 100)
+#   GATE_CTGRIND_VG_CFLAGS  -isystem path to <valgrind/memcheck.h> for ctgrind (default: "")
 #   GATE_SOURCE_REV / GATE_NIXPKGS_REV  provenance overrides (default: auto)
 #
 # Exit: 0 all building compilers passed · 1 a building compiler leaked/failed a
@@ -56,18 +61,91 @@ GATE_CORE="${GATE_CORE:-}"
 GATE_DUDECT_RUNS="${GATE_DUDECT_RUNS:-20}"
 GATE_OUT="${GATE_OUT:-$ROOT/gate-results}"
 GATE_TIMEOUT="${GATE_TIMEOUT:-1800}"
-GATE_LENIENT_MEAN="${GATE_LENIENT_MEAN:-10}"   # lenient ops: mean|t| bound
-GATE_LENIENT_MAX="${GATE_LENIENT_MAX:-15}"     # lenient ops: any single run over this = a spike, not an artefact
+GATE_ARTEFACT_MEAN="${GATE_ARTEFACT_MEAN:-35}" # large-artefact ops (jp_add, fsub): wide mean|t| bound
+GATE_LENIENT_MEAN="${GATE_LENIENT_MEAN:-15}"   # near-flat field ops (fadd, fred, fneg): tighter mean|t| bound
+GATE_LENIENT_MAX="${GATE_LENIENT_MAX:-100}"    # all lenient ops: loose gross-anomaly backstop (per-run max is noisy)
+GATE_STRICT_OVER_PCT="${GATE_STRICT_OVER_PCT:-5}"  # strict ops: fail if >this% of runs are |t|>=4.5 (tolerate a lone transient)
+# Minimum samples per dudect class. A FULLY degenerate statistic (a class with <2
+# samples, or both-variances-zero) now returns NAN from dudect_t_statistic, which
+# the gate's nan/inf check reds. This floor catches the DISTINCT finite-but-weak
+# case: a class with 2..minn samples yields a finite but untrustworthy t. A broken
+# class generator (all measurements in one class) or a short run is rejected by
+# requiring BOTH classes >= this. Default 100: far below the smallest healthy
+# per-class count (scalar_inv ~500/class from 1000 measurements; field ops ~750k),
+# far above the degenerate cases.
+GATE_MIN_CLASS_N="${GATE_MIN_CLASS_N:-100}"
 THRESHOLD="4.5"
 
-# Ops whose timing MUST be flat (secret-dependent inputs) — any run over 4.5 is a
-# fail. The operand-value artefact ops (field ops + jp_add) are lenient: marginal
-# excursions are tolerated, flagged if mean|t| exceeds GATE_LENIENT_MEAN or any
-# single run exceeds GATE_LENIENT_MAX (see CLAUDE.md: jp_add_internal ~7.5 artefact).
+# Three tiers, so a currently-flat op can't regress up to the widest bound
+# unnoticed. The field/point ops carry a benign operand-value LATENCY artefact,
+# of very different magnitude, so they get bounds scoped to the op that needs
+# them, NOT one global relaxation. Two channels, two backstops: ctgrind covers
+# the BRANCH/addressing channel (it poisons secrets and catches secret-dependent
+# control flow, but is SILENT on data-dependent instruction latency — so it does
+# NOT, on its own, certify this artefact benign); the operand-latency channel's
+# benignness w.r.t. the SECRET SCALAR is established by the flat STRICT ladder
+# (scalar_multiply_ct), measured end-to-end on the real full-width operand
+# distribution (see tier 2). The tiers:
+#   1. STRICT (scalar_*): secret-dependent inputs, MUST be flat — fail when MORE
+#      than GATE_STRICT_OVER_PCT%% of runs are at/over 4.5 (a reconstructed branch
+#      shows in ~every run, a lone transient in one; see the aggregation below).
+#      These plus the ctgrind pass are the security gate.
+#   2. ARTEFACT (jp_add, fsub): the elevated ops — jp_add's Zen-MULTIPLIER
+#      operand-value latency (Z=1 vs non-trivial Z), fsub's borrow-path latency.
+#      Both are operand-VALUE effects ctgrind cannot see; the standalone dudect
+#      |t| comes from the test's deliberately magnitude-asymmetric operand classes
+#      (fsub: tiny-vs-full-width) — a synthetic magnitude asymmetry. Tiny
+#      operands DO occur on the secret path (the ladder processes the infinity
+#      accumulator [0,1,0] for a scalar-dependent number of leading iterations),
+#      but the strict k=1-vs-random ladder test maximally stresses exactly that
+#      and measures flat, so the effect is not secret-correlated. Secret-scalar
+#      correlation is caught by the flat STRICT ladder, not by this tier or
+#      ctgrind. Wide
+#      mean bound GATE_ARTEFACT_MEAN. (A realistic full-width-vs-full-width fsub
+#      test could retire it from this tier — issue #78.)
+#   3. LENIENT (fadd, fred, fneg): near-flat, kept on a TIGHTER mean bound
+#      GATE_LENIENT_MEAN so a stable regression in one of them is still caught.
+#
+# The bounds are CALIBRATED PER PINNED TOOLCHAIN, re-derived from the authoritative
+# bare-metal sweep (issue #74) whenever the compiler changes — an artefact floor,
+# NOT loosen-to-green. The MEAN is the stable, gated signal; the per-run MAX is
+# noisy for these ~20 ns ops (it swings run-to-run) so GATE_LENIENT_MAX is only a
+# loose gross-anomaly backstop shared by both lenient tiers, not a spike detector.
+# On the reference machine (gcc 15.1, quiet, random-class harness, VANILLA -O2)
+# the worst op is jp_add_internal, observed across sweeps at mean ~16-24 / max
+# ~37-71 (the max swings run-to-run); the ARTEFACT mean bound (35) sits above the
+# mean with margin and the max backstop (100) above the noisy max envelope, the
+# LENIENT bound (15) hugs the near-flat ops (mean ~0.6-5). The lenient bounds are
+# NOT the primary leak detector for these ops — note a #25-magnitude leak
+# (|t| ≈ 21) would slip under the 35
+# artefact bound. That's fine: jp_add/fsub are point/field building blocks, not
+# secret-scalar ops. A secret-correlated BRANCH in them surfaces in BOTH the
+# deterministic ctgrind pass AND the STRICT scalar_multiply_ct (gated at 4.5,
+# where the #25 leak read ~21 and was caught with wide margin); a secret-correlated
+# operand-LATENCY effect, which ctgrind cannot see, surfaces in the STRICT ladder
+# alone, measured flat end-to-end — that is the backstop for this tier;
+# the lenient bounds just pin the benign artefact per toolchain and flag gross
+# regressions in the near-flat ops.
 # Full labels, not substrings: `scalar_add` is intentionally ABSENT — the harness
 # emits no scalar_add dudect line, so listing it would falsely imply coverage.
 # (If scalar_add ever gets a dudect test, add its label here.)
-STRICT_RE='scalar_multiply_ct_internal|scalar_mul_internal|scalar_reduce|scalar_inv_internal'
+# Anchored (^(...)$) so a match is an EXACT full label, per the note above — a
+# future dudect label that merely contained one of these as a substring must not
+# be mis-tiered.
+STRICT_RE='^(scalar_multiply_ct_internal|scalar_mul_internal|scalar_reduce|scalar_inv_internal)$'
+# The elevated operand-value-artefact ops that get the WIDE lenient mean bound;
+# every other non-strict op gets the tighter GATE_LENIENT_MEAN.
+ARTEFACT_RE='^(jp_add_internal|fsub_internal)$'
+
+# Fail-closed coverage guard (principle 1: fail closed, not open). The aggregation
+# only iterates labels it actually SAW, so a strict op silently removed/renamed —
+# or a harness that partially crashes yet still emits >=1 dudect line (so the
+# no-output FAIL path is not hit) — would drop out of the gate unnoticed: a
+# missing label yields zero over-threshold runs, which reads as a pass. We assert
+# every EXPECTED label is present and red the gate if any is absent. Keep in
+# lock-step with timing/timing_harness.c: adding a dudect op must add its label
+# here, a deliberate acknowledgement that the gate now covers it.
+GATE_EXPECT_LABELS="scalar_multiply_ct_internal scalar_mul_internal scalar_reduce scalar_inv_internal jp_add_internal fsub_internal fadd_internal fred_internal fneg_internal"
 
 mkdir -p "$GATE_OUT"
 REPORT="$GATE_OUT/timing-report.txt"
@@ -132,7 +210,7 @@ fi
   echo "cur freq    : ${cur_khz} kHz (stamped to catch throttling)"
   echo "source rev  : $src_rev"
   echo "nixpkgs rev : $npk_rev"
-  echo "dudect runs : $GATE_DUDECT_RUNS   threshold |t|<$THRESHOLD (strict) / mean|t|<$GATE_LENIENT_MEAN (operand-artefact ops)"
+  echo "dudect runs : $GATE_DUDECT_RUNS   |t|<$THRESHOLD strict (fail if >$GATE_STRICT_OVER_PCT% of runs at/over) / mean|t|<$GATE_ARTEFACT_MEAN (jp_add,fsub) / <$GATE_LENIENT_MEAN (other field ops) / max<$GATE_LENIENT_MAX / min class n=$GATE_MIN_CLASS_N"
   echo "compilers   : $GATE_COMPILERS"
   echo "-------------------------------- machine state (did the quiet config take?) --"
   echo "cmdline     : $ms_cmdline"
@@ -221,8 +299,22 @@ for cc in $GATE_COMPILERS; do
   log "  rspec   : $rspec ($(grep -oE '[0-9]+ examples?, [0-9]+ failures?' "$work/rspec.log" | tail -1))"
 
   # --- 5. ctgrind ------------------------------------------------------------
+  # GATE_CTGRIND_VG_CFLAGS carries the valgrind-dev include (-isystem ...) for
+  # <valgrind/memcheck.h> when it isn't on the default path (the nix ISO/app);
+  # empty on a distro where the header is already found. Passed EXPLICITLY as a
+  # make var because a bare NIX_CFLAGS_COMPILE is ignored by nix's salted
+  # cc-wrapper.
+  # NIX_HARDENING_ENABLE="" to match the SHIPPING-SHAPED vanilla codegen (as the
+  # extension build above does): the nix cc-wrapper's default hardening alters
+  # codegen, and a compiler-reconstructed branch is optimisation- AND flag-specific.
+  # This standalone harness is not byte-identical to a `gem install` build (it adds
+  # stub-build flags and omits per-user mkmf CFLAGS; see docs/security.md), but
+  # building at vanilla -O2 exercises the same optimisation level and hardening-off
+  # codegen that ships — or the deterministic backstop would verify a hardened
+  # binary users do not run. (Advisory 0001's reconstruction is a vanilla -O2
+  # phenomenon.)
   make -C security clean >/dev/null 2>&1
-  if step make -C security ctgrind CC="$cc" >"$work/ctg.log" 2>&1 \
+  if NIX_HARDENING_ENABLE="" step make -C security ctgrind CC="$cc" CTGRIND_VG_CFLAGS="${GATE_CTGRIND_VG_CFLAGS:-}" >"$work/ctg.log" 2>&1 \
      && step valgrind -q --error-exitcode=1 ./security/ctgrind_harness >>"$work/ctg.log" 2>&1; then
     ctgrind="PASS"
     log "  ctgrind : PASS"
@@ -233,8 +325,12 @@ for cc in $GATE_COMPILERS; do
   fi
 
   # --- 6. dudect timing, N runs ----------------------------------------------
+  # Vanilla (NIX_HARDENING_ENABLE="") too, so the measured timing is the
+  # shipping-shaped codegen's (same optimisation level + hardening-off, though
+  # not byte-identical — see the ctgrind note above), not the hardened wrapper
+  # default — the calibrated bounds must describe the binary users run.
   make -C timing clean >/dev/null 2>&1
-  if ! step make -C timing CC="$cc" >"$work/timing.log" 2>&1; then
+  if ! NIX_HARDENING_ENABLE="" step make -C timing CC="$cc" >"$work/timing.log" 2>&1; then
     log "  dudect  : FAIL — timing harness build failed"; cc_pass=0
   else
     : > "$work/dudect.raw"
@@ -244,8 +340,9 @@ for cc in $GATE_COMPILERS; do
     for run in $(seq 1 "$GATE_DUDECT_RUNS"); do
       # Capture per run so a timeout/crash is DETECTED, not swallowed. CRUCIAL:
       # timing_harness returns 1 whenever ANY op trips its OWN internal |t|>=4.5
-      # (e.g. jp_add_internal's documented ~7.5 artefact), so exit 0 AND 1 are
-      # both NORMAL completions — we re-derive PASS/FAIL from the t-values below,
+      # (e.g. jp_add_internal's operand-value artefact, which exceeds 4.5), so exit
+      # 0 AND 1 are both NORMAL completions — we re-derive PASS/FAIL from the
+      # t-values below,
       # so the harness's own verdict is not the run-success signal. A real
       # failure is a timeout (`timeout` → 124), a signal (>128), or no output.
       step $pin ./timing/timing_harness >"$work/run" 2>/dev/null; hrc=$?
@@ -263,42 +360,128 @@ for cc in $GATE_COMPILERS; do
       log "  dudect  : FAIL — no dudect output from $GATE_DUDECT_RUNS run(s) (crash/timeout)"
       cc_pass=0
     else
-      [ "$runs_ok" -lt "$GATE_DUDECT_RUNS" ] && \
-        log "  dudect  : note — only $runs_ok/$GATE_DUDECT_RUNS runs produced output"
+      short=0
+      if [ "$runs_ok" -lt "$GATE_DUDECT_RUNS" ]; then
+        # Fail closed (principle 1): a degraded run-set is inconclusive, not a
+        # pass. With nexp=runs_ok the per-label count check alone CANNOT catch
+        # this — e.g. 19/20 runs time out and the one survivor emits every label
+        # once, so count==nexp==1 and the strict fraction sees 0/1 over — the
+        # statistical basis (N independent runs) is gone. Red the gate rather
+        # than certify on a shrunken run-set. (Fewer runs by design? lower
+        # GATE_DUDECT_RUNS — then all of them must still succeed.)
+        short=1
+        log "  dudect  : FAIL — only $runs_ok/$GATE_DUDECT_RUNS runs produced output (inconclusive; all $GATE_DUDECT_RUNS required)"
+      fi
       # Aggregate per op: n_over threshold, max|t|, mean|t|; apply strict/lenient.
-      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v lmean="$GATE_LENIENT_MEAN" -v lmax="$GATE_LENIENT_MAX" '
+      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v artefact="$ARTEFACT_RE" -v amean="$GATE_ARTEFACT_MEAN" -v lmean="$GATE_LENIENT_MEAN" -v lmax="$GATE_LENIENT_MAX" -v spct="$GATE_STRICT_OVER_PCT" -v expect="$GATE_EXPECT_LABELS" -v nexp="$runs_ok" -v minn="$GATE_MIN_CLASS_N" '
         /^dudect:/ {
-          label=$2; tv=""
-          # dudect prints "t=%+9.4f": a standalone "t=" then the value for small
-          # |t|, but GLUED ("t=+875.0000") once |t|>=100 drops the pad space — i.e.
-          # exactly a large leak. Match the field starting "t=" and take its
-          # numeric suffix (or the next field), resetting per line so a missed
-          # parse can never carry a previous value forward.
-          for (i=1; i<=NF; i++) if ($i ~ /^t=/) { tv=$i; sub(/^t=/,"",tv); if (tv=="") tv=$(i+1); break }
-          if (tv=="") { bad++; next }
+          label=$2; tv=""; c0=""; c1=""
+          # Scan fields once for the class counts (n0=/n1=, printed before t=) and
+          # the t-value. dudect prints "t=%+9.4f": a standalone "t=" then the value
+          # for small |t|, but GLUED ("t=+875.0000") once |t|>=100 drops the pad
+          # space — i.e. exactly a large leak. Take the "t=" suffix or the next
+          # field; the tv=="" guard sets it once so a later field cannot overwrite.
+          for (i=1; i<=NF; i++) {
+            if ($i ~ /^t=/ && tv=="") { tv=$i; sub(/^t=/,"",tv); if (tv=="") tv=$(i+1) }
+            else if ($i ~ /^n0=/) { c0=$i; sub(/^n0=/,"",c0) }
+            else if ($i ~ /^n1=/) { c1=$i; sub(/^n1=/,"",c1) }
+          }
+          if (tv=="") { badparse++; next }
+          # Non-finite t (a degenerate Welch denominator prints nan/inf via %f)
+          # must fail closed: tv+0 would coerce it to 0 (BSD awk) or nan (gawk)
+          # and silently count as a clean sub-threshold run — a fail-open.
+          if (tolower(tv) ~ /nan|inf/) { badnan++; next }
+          # Class-count validity floor. dudect now returns NAN for a fully
+          # degenerate statistic (a class with <2 samples, or both-variances-zero
+          # from a constant/broken timer) — the nan/inf check above reds those.
+          # This adds the STATISTICAL floor the nan check cannot: a class with
+          # 2..minn samples yields a FINITE but untrustworthy t. Reject any line
+          # whose class counts are missing or below minn (a broken class
+          # generator bucketing every measurement into one class, or an
+          # under-sampled run, has no valid Welch test). Fail closed.
+          if (c0=="" || c1=="") { badcount++; next }
+          if (c0+0 < minn || c1+0 < minn) { badcount++; next }
           a=tv+0; if(a<0)a=-a
-          n[label]++; sum[label]+=a; if(a>mx[label])mx[label]=a; if(a>thr)ov[label]++
+          n[label]++; sum[label]+=a; if(a>mx[label])mx[label]=a; if(a>=thr)ov[label]++
         }
         END {
           anyfail=0
           # Fail closed on any line whose t could not be parsed — never drop it.
-          if (bad>0) { anyfail=1; printf "    %-28s %d line(s) with unparseable t <== FAIL\n","(parse-error)",bad }
+          # Each reject reason reports separately so a failure names its true cause.
+          if (badparse>0) { anyfail=1; printf "    %-28s %d line(s) with unparseable t <== FAIL\n","(parse-error)",badparse }
+          if (badnan>0)   { anyfail=1; printf "    %-28s %d line(s) with non-finite t (nan/inf) <== FAIL\n","(degenerate-t)",badnan }
+          if (badcount>0) { anyfail=1; printf "    %-28s %d line(s) with missing/under-sampled class counts <== FAIL\n","(under-sampled)",badcount }
           for (l in n) {
             mean=sum[l]/n[l]
             isstrict = (l ~ strict)
-            # Lenient (operand-artefact) ops tolerate a marginal mean, but a
-            # single run over lmax is a real spike, not an artefact — do not let
-            # it be averaged away (lmax > the ~7.5 jp_add artefact, well below
-            # genuine-leak magnitudes of tens to hundreds).
-            if (isstrict) { fail = (ov[l]>0) } else { fail = (mean>lmean || mx[l]>lmax) }
+            isartefact = (l ~ artefact)
+            # Strict ops: fail if MORE THAN spct% of runs are at/over 4.5. A
+            # compiler-reconstructed branch is compiled IN, so it shows in
+            # essentially EVERY run (the #25 ladder leak was 20/20); a lone
+            # measurement transient hits one run. Gating on the fraction-over
+            # therefore distinguishes the two WITHOUT masking a real leak (a leak
+            # is ~100% of runs, far above spct) while not redding the gate on a
+            # single blip. Scales with N: at spct=5 and N=20 it tolerates <=1
+            # over-threshold run (fails at 2); at small N it stays effectively
+            # strict (N=2 -> any run over fails). ctgrind (deterministic, vanilla
+            # -O2) is the load-bearing backstop for the marginal band this cannot
+            # resolve (a weak/rare-bit partial branch < spct% of runs) — and it
+            # poisons the secret inputs of ALL FOUR strict ops (ladder,
+            # scalar_mul, scalar_reduce, scalar_inv in ctgrind_harness.c), so no
+            # strict label relies on the statistical gate alone for the BRANCH
+            # channel. Residual: ctgrind cannot see operand LATENCY, so a
+            # secret-correlated latency leak weak enough to stay < spct% of runs
+            # is not deterministically excluded — but that sits at the noise
+            # floor (a genuine data-dependent effect fires consistently, like the
+            # 17/20 and 9/20 artefacts, not 1/20). See docs/security.md. Lenient
+            # ops are gated on the MEAN (the stable signal) against a per-tier
+            # bound — the wider amean for the elevated artefact ops (jp_add/fsub),
+            # the tighter lmean for the near-flat ones — plus a shared loose max
+            # backstop (per-run max is noisy for these fast ops, not a spike det).
+            # The mean/max bounds compare >= (a value exactly at the bound fails,
+            # fail-closed); the strict fraction uses > (tolerate exactly spct%).
+            if (isstrict) {
+              fail = (ov[l]*100 > n[l]*spct); tier = "[strict]"
+            } else if (isartefact) {
+              fail = (mean >= amean || mx[l] >= lmax); tier = "[artefact]"
+            } else {
+              fail = (mean >= lmean || mx[l] >= lmax); tier = "[lenient]"
+            }
             if (fail) anyfail=1
-            printf "    %-28s runs=%d over%.1f=%d max|t|=%.2f mean|t|=%.2f %s%s\n",
-                   l, n[l], thr, ov[l]+0, mx[l], mean,
-                   (isstrict?"[strict]":"[lenient]"), (fail?" <== FAIL":"")
+            printf "    %-28s runs=%d %d>=%.1f max|t|=%.2f mean|t|=%.2f %s%s\n",
+                   l, n[l], ov[l]+0, thr, mx[l], mean, tier, (fail?" <== FAIL":"")
+          }
+          # Fail closed on coverage anomalies in BOTH directions (principle 1) —
+          # the aggregation tiers only the labels it saw, so guard the label set:
+          #   (a) every EXPECTED label must be present with the FULL run count.
+          #       Absent entirely (op removed/renamed) OR short (a partial-run
+          #       harness that emitted it in only some runs) reds the gate — a
+          #       silently-dropped or under-sampled op, above all a strict one,
+          #       must never pass by omission. Each healthy run emits each label
+          #       exactly once, so the expected per-label count is nexp (=runs_ok).
+          #   (b) every SEEN label must be EXPECTED. A new/renamed op otherwise
+          #       falls through to [lenient] tiering silently; an unknown label
+          #       reds the gate and forces an explicit tier decision in
+          #       GATE_EXPECT_LABELS + the strict/artefact regexes.
+          ne = split(expect, elab, " ")
+          for (j=1; j<=ne; j++) known[elab[j]] = 1
+          for (j=1; j<=ne; j++) {
+            if (!(elab[j] in n)) {
+              anyfail=1
+              printf "    %-28s MISSING from dudect output <== FAIL\n", elab[j]
+            } else if (nexp+0 > 0 && n[elab[j]] != nexp) {
+              anyfail=1
+              printf "    %-28s incomplete: %d/%d runs <== FAIL\n", elab[j], n[elab[j]], nexp
+            }
+          }
+          for (l in n) if (!(l in known)) {
+            anyfail=1
+            printf "    %-28s UNEXPECTED label (add to GATE_EXPECT_LABELS + tier) <== FAIL\n", l
           }
           exit anyfail
         }' "$work/dudect.raw")"
       dudect_rc=$?
+      [ "$short" -eq 1 ] && dudect_rc=1
       log "  dudect  : $([ $dudect_rc -eq 0 ] && echo PASS || echo FAIL) (N=$runs_ok${GATE_CORE:+, core $GATE_CORE})"
       printf '%s\n' "$agg" | tee -a "$REPORT" >/dev/null
       [ $dudect_rc -ne 0 ] && cc_pass=0

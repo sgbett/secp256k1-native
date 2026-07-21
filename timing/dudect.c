@@ -64,9 +64,13 @@ void dudect_add(dudect_ctx_t *ctx, int class_id, double measurement)
  *
  * where var = M2 / (n - 1)  (Bessel-corrected sample variance).
  *
- * Returns 0.0 when the statistic cannot be meaningfully computed:
- *   - Either class has fewer than 2 samples (variance undefined)
- *   - Both variances are zero (denominator would be zero)
+ * Returns NAN when the statistic cannot be meaningfully computed — an
+ * *undefined* statistic, NOT a flat/zero result. A degenerate measurement is
+ * not evidence of constant time; callers (dudect_passed, and the
+ * reference-machine gate's nan/inf check) must treat NAN as invalid and fail
+ * closed rather than certify it. The two degenerate cases:
+ *   - Either class has fewer than 2 samples (sample variance undefined)
+ *   - Both variances are zero (a constant/broken timer — denominator zero)
  * ----------------------------------------------------------------------- */
 
 double dudect_t_statistic(const dudect_ctx_t *ctx)
@@ -77,17 +81,18 @@ double dudect_t_statistic(const dudect_ctx_t *ctx)
 
     /* Need at least 2 samples per class for sample variance */
     if (a->n < 2 || b->n < 2)
-        return 0.0;
+        return NAN;
 
     var_a = a->m2 / (double)(a->n - 1);
     var_b = b->m2 / (double)(b->n - 1);
 
     denom = var_a / (double)a->n + var_b / (double)b->n;
 
-    /* Both distributions have zero variance — means are exact but
-     * the t-statistic is undefined.  Return 0 (indistinguishable). */
+    /* Both distributions have zero variance — the t-statistic is undefined (a
+     * constant/degenerate measurement, e.g. a broken timer), NOT a genuine null
+     * result. Return NAN so the caller fails closed. */
     if (denom <= 0.0)
-        return 0.0;
+        return NAN;
 
     return (a->mean - b->mean) / sqrt(denom);
 }

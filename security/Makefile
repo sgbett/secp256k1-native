@@ -44,8 +44,23 @@ dfuzz: dfuzz_harness.c $(EXT_SRCS) $(STUB_SRC)
 	$(CC) -O2 $(BASEFLAGS) $^ -lm -o dfuzz
 
 # valgrind is incompatible with -fsanitize here; build with debug info only.
+# CTGRIND_VG_CFLAGS: optional path to <valgrind/memcheck.h> when it isn't on the
+# default include path (e.g. `-isystem <valgrind.dev>/include` on nix, where the
+# header lives in valgrind's separate `dev` output). Empty otherwise.
+CTGRIND_VG_CFLAGS ?=
+# Build at -O2 to match the shipped optimisation LEVEL (extconf.rb appends -O2) —
+# not byte-identical codegen: this standalone harness adds stub-build flags and
+# omits the per-user mkmf CFLAGS, so its bytes are not generally identical to a
+# `gem install` build (see docs/security.md, "shipping-shaped"). Matching the
+# LEVEL is what matters here, because the deterministic secret-poisoning check
+# exists to catch a compiler-reconstructed branch, and that reconstruction is
+# optimisation-specific — the advisory-0001 GCC 14/15 select-branchification only
+# appears at -O2 (-O0/-O1 stay constant-time). A clean -O1 ctgrind run would
+# therefore NOT validate the code that actually ships, leaving the widened
+# lenient timing tier (jp_add/fsub) without a deterministic backstop on the
+# codegen it permits.
 ctgrind: ctgrind_harness.c $(EXT_SRCS) $(STUB_SRC)
-	$(CC) -O1 -g $(BASEFLAGS) $^ -lm -o ctgrind_harness
+	$(CC) -O2 -g $(BASEFLAGS) $(CTGRIND_VG_CFLAGS) $^ -lm -o ctgrind_harness
 
 asan: asan_sweep.c $(EXT_SRCS) $(STUB_SRC)
 	$(CC) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \

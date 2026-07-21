@@ -19,12 +19,12 @@ This is the pre-tag checklist — a literal gate where each box has to be ticked
 
 ## Why bare-metal dudect is the load-bearing step
 
-`ctgrind` observes the *source-level* CT contract on the CI toolchain; bare-metal dudect observes the *statistical timing of the shipping binary* on the known-good compiler. Between them these cover the two failure modes H-2 exposed:
+The deterministic CT checks observe the *source-level / structural* CT contract — the source-mask guard and the assembly-invariant run in CI on every commit, and `ctgrind`/valgrind secret-poisoning runs on the reference machine and locally via `security/run-checks.sh` (it needs valgrind, so it is not a CI job); bare-metal dudect observes the *statistical timing of the shipping-shaped binary* (the standalone harness at vanilla `-O2` — not byte-identical to a per-user `gem install`; see [security.md](security.md#empirical-timing-verification)) on the known-good compiler. Between them these cover the two failure modes H-2 exposed:
 
-- **Source-level regression** — a contributor introducing a new branch. Caught by CI (`security/check-ct-mask-guard.sh`, ctgrind, RSpec).
+- **Source-level regression** — a contributor introducing a new branch. Caught by CI (`security/check-ct-mask-guard.sh`, the assembly-invariant, RSpec).
 - **Compiler-level regression** — the compiler reconstructing a branch from branchless source. Caught *structurally* by the assembly-invariant CI check (`.github/workflows/ct-assembly-invariant.yml`) on every commit for the ladder loop body and `jp_add_internal`, and *statistically* by bare-metal dudect on the shipping compiler.
 
-The assembly-invariant check narrows the gap by observing binary *structure* per commit, but the shipping binary's *statistical timing* is a superset — bare-metal dudect on the release compiler stays required (H-2's specific shape happened to be caught in `uint256_select` and would trip the assembly check, but a hypothetical regression in code the check doesn't inspect would surface only in dudect).
+The assembly-invariant check narrows the gap by observing binary *structure* per commit, but the shipping-shaped binary's *statistical timing* is a superset — bare-metal dudect on the release compiler stays required (H-2's specific shape happened to be caught in `uint256_select` and would trip the assembly check, but a hypothetical regression in code the check doesn't inspect would surface only in dudect).
 
 ## Related
 

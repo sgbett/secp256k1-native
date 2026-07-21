@@ -12,7 +12,7 @@ This is a checklist for re-running the **statistical** constant-time verificatio
 
 ## Why this can't be trusted in the cloud
 
-The `ctgrind` / valgrind secret-poisoning check (run in CI) is **deterministic**: it flags any machine instruction that branches or addresses memory based on a secret, regardless of how noisy the host is. That result is trustworthy anywhere.
+The `ctgrind` / valgrind secret-poisoning check (run on the reference machine and locally via `security/run-checks.sh`; its CI companion is the deterministic assembly-invariant, since ctgrind needs valgrind) is **deterministic**: it flags any machine instruction that branches or addresses memory based on a secret, regardless of how noisy the host is. That result is trustworthy anywhere.
 
 The `dudect` check is **statistical**: it runs the operation tens of thousands of times on two input classes and asks whether the timing distributions differ (|t| < 4.5 ⇒ no detectable leak). On a shared VM, three things corrupt that measurement:
 
@@ -74,7 +74,7 @@ Record the |t| for each measured op (`fred`, `fsub`, `fneg`, `fadd`, `scalar_mul
 
 - **|t| < 4.5** across a long run ⇒ no timing leak detectable at this sample size. This is the pass condition the project already uses.
 - **|t| ≥ 4.5** ⇒ investigate. First rule out measurement artefacts: re-run, confirm the machine is quiet, confirm turbo is off. A *persistent*, reproducible high |t| that survives a quiet bare-metal run is a real finding — triage it per the "Security findings" process in `CLAUDE.md`.
-- Note the known marginal artefact already documented in `risks.md` (`jp_add_internal` isolation, |t| ≈ 7.5 from operand-value microarchitectural variation, not a branch) — don't re-flag that as new.
+- Note the known marginal operand-value artefacts — `jp_add_internal` isolation (Zen multiplier operand-value latency) plus the field ops `fsub_internal` and `fred_internal` (magnitude-asymmetric add/borrow paths), all microarchitectural variation, not branches. The full per-toolchain list is catalogued in [security.md](security.md#empirical-timing-verification) (`risks.md` covers `jp_add`/`fred`, the artefacts present on GCC 15.2). Don't re-flag those as new. Their magnitude is toolchain-dependent (e.g. `jp_add` |t| ≈ 7.5 on GCC 15.2, ~22 on GCC 15.1; `fsub` is near-flat on GCC 15.2 but elevated on 15.1), which is why the gate's lenient bounds are calibrated per pinned toolchain, with the elevated ops (`jp_add`/`fsub`) on a wider bound than the near-flat ones.
 
 ### 5. Record it
 
