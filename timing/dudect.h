@@ -50,8 +50,10 @@ void dudect_init(dudect_ctx_t *ctx);
 void dudect_add(dudect_ctx_t *ctx, int class_id, double measurement);
 
 /* Compute Welch's t-statistic from the accumulated measurements.
- * Returns 0.0 if either class has fewer than 2 samples (variance
- * is undefined) or if both variances are zero. */
+ * Returns NAN — an *undefined* statistic, not a flat/zero result — if either
+ * class has fewer than 2 samples (sample variance undefined) or both variances
+ * are zero (a constant/broken timer). Callers must treat NAN as invalid and
+ * fail closed, never certify it as a pass. */
 double dudect_t_statistic(const dudect_ctx_t *ctx);
 
 /* Return 1 if |t| < threshold (no detectable leakage), 0 otherwise.

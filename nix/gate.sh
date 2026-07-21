@@ -36,6 +36,7 @@
 #   GATE_LENIENT_MEAN  mean|t| bound for the near-flat field ops        (default: 15)
 #   GATE_LENIENT_MAX   loose max|t| gross-anomaly backstop (all lenient)(default: 100)
 #   GATE_STRICT_OVER_PCT  strict ops: max %% of runs |t|>=4.5 tolerated  (default: 5)
+#   GATE_MIN_CLASS_N  min samples per dudect class; reject under-sampled  (default: 100)
 #   GATE_CTGRIND_VG_CFLAGS  -isystem path to <valgrind/memcheck.h> for ctgrind (default: "")
 #   GATE_SOURCE_REV / GATE_NIXPKGS_REV  provenance overrides (default: auto)
 #
@@ -91,9 +92,13 @@ THRESHOLD="4.5"
 #      operand-value latency (Z=1 vs non-trivial Z), fsub's borrow-path latency.
 #      Both are operand-VALUE effects ctgrind cannot see; the standalone dudect
 #      |t| comes from the test's deliberately magnitude-asymmetric operand classes
-#      (fsub: tiny-vs-full-width) that do NOT occur on secret-derived operands
-#      (always full-width residues mod P). Secret-scalar correlation is caught by
-#      the flat STRICT ladder, not by this standalone tier or by ctgrind. Wide
+#      (fsub: tiny-vs-full-width) — a synthetic magnitude asymmetry. Tiny
+#      operands DO occur on the secret path (the ladder processes the infinity
+#      accumulator [0,1,0] for a scalar-dependent number of leading iterations),
+#      but the strict k=1-vs-random ladder test maximally stresses exactly that
+#      and measures flat, so the effect is not secret-correlated. Secret-scalar
+#      correlation is caught by the flat STRICT ladder, not by this tier or
+#      ctgrind. Wide
 #      mean bound GATE_ARTEFACT_MEAN. (A realistic full-width-vs-full-width fsub
 #      test could retire it from this tier — issue #78.)
 #   3. LENIENT (fadd, fred, fneg): near-flat, kept on a TIGHTER mean bound
@@ -203,7 +208,7 @@ fi
   echo "cur freq    : ${cur_khz} kHz (stamped to catch throttling)"
   echo "source rev  : $src_rev"
   echo "nixpkgs rev : $npk_rev"
-  echo "dudect runs : $GATE_DUDECT_RUNS   |t|<$THRESHOLD strict (fail if >$GATE_STRICT_OVER_PCT% of runs over) / mean|t|<$GATE_ARTEFACT_MEAN (jp_add,fsub) / <$GATE_LENIENT_MEAN (other field ops) / max<$GATE_LENIENT_MAX"
+  echo "dudect runs : $GATE_DUDECT_RUNS   |t|<$THRESHOLD strict (fail if >$GATE_STRICT_OVER_PCT% of runs over) / mean|t|<$GATE_ARTEFACT_MEAN (jp_add,fsub) / <$GATE_LENIENT_MEAN (other field ops) / max<$GATE_LENIENT_MAX / min class n=$GATE_MIN_CLASS_N"
   echo "compilers   : $GATE_COMPILERS"
   echo "-------------------------------- machine state (did the quiet config take?) --"
   echo "cmdline     : $ms_cmdline"
@@ -384,14 +389,14 @@ for cc in $GATE_COMPILERS; do
           # must fail closed: tv+0 would coerce it to 0 (BSD awk) or nan (gawk)
           # and silently count as a clean sub-threshold run — a fail-open.
           if (tolower(tv) ~ /nan|inf/) { bad++; next }
-          # Under-sampled class: dudect_t_statistic returns a finite 0.0 when a
-          # class has <2 samples, which passes as clean. Reject any line whose
-          # class counts are missing or below minn (a broken class generator that
-          # buckets every measurement into one class, or a degenerate run, has no
-          # valid Welch test). Fail closed. (Residual: the both-zero-variance 0.0
-          # from a constant timer is not distinguishable from a genuinely flat op
-          # in the report, but requires a broken timer and would show across ALL
-          # ops at once.)
+          # Class-count validity floor. dudect now returns NAN for a fully
+          # degenerate statistic (a class with <2 samples, or both-variances-zero
+          # from a constant/broken timer) — the nan/inf check above reds those.
+          # This adds the STATISTICAL floor the nan check cannot: a class with
+          # 2..minn samples yields a FINITE but untrustworthy t. Reject any line
+          # whose class counts are missing or below minn (a broken class
+          # generator bucketing every measurement into one class, or an
+          # under-sampled run, has no valid Welch test). Fail closed.
           if (c0=="" || c1=="") { bad++; next }
           if (c0+0 < minn || c1+0 < minn) { bad++; next }
           a=tv+0; if(a<0)a=-a
