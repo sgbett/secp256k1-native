@@ -369,6 +369,10 @@ for cc in $GATE_COMPILERS; do
           # parse can never carry a previous value forward.
           for (i=1; i<=NF; i++) if ($i ~ /^t=/) { tv=$i; sub(/^t=/,"",tv); if (tv=="") tv=$(i+1); break }
           if (tv=="") { bad++; next }
+          # Non-finite t (a degenerate Welch denominator prints nan/inf via %f)
+          # must fail closed: tv+0 would coerce it to 0 (BSD awk) or nan (gawk)
+          # and silently count as a clean sub-threshold run — a fail-open.
+          if (tolower(tv) ~ /nan|inf/) { bad++; next }
           a=tv+0; if(a<0)a=-a
           n[label]++; sum[label]+=a; if(a>mx[label])mx[label]=a; if(a>=thr)ov[label]++
         }
