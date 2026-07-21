@@ -346,8 +346,18 @@ for cc in $GATE_COMPILERS; do
       log "  dudect  : FAIL — no dudect output from $GATE_DUDECT_RUNS run(s) (crash/timeout)"
       cc_pass=0
     else
-      [ "$runs_ok" -lt "$GATE_DUDECT_RUNS" ] && \
-        log "  dudect  : note — only $runs_ok/$GATE_DUDECT_RUNS runs produced output"
+      short=0
+      if [ "$runs_ok" -lt "$GATE_DUDECT_RUNS" ]; then
+        # Fail closed (principle 1): a degraded run-set is inconclusive, not a
+        # pass. With nexp=runs_ok the per-label count check alone CANNOT catch
+        # this — e.g. 19/20 runs time out and the one survivor emits every label
+        # once, so count==nexp==1 and the strict fraction sees 0/1 over — the
+        # statistical basis (N independent runs) is gone. Red the gate rather
+        # than certify on a shrunken run-set. (Fewer runs by design? lower
+        # GATE_DUDECT_RUNS — then all of them must still succeed.)
+        short=1
+        log "  dudect  : FAIL — only $runs_ok/$GATE_DUDECT_RUNS runs produced output (inconclusive; all $GATE_DUDECT_RUNS required)"
+      fi
       # Aggregate per op: n_over threshold, max|t|, mean|t|; apply strict/lenient.
       agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v artefact="$ARTEFACT_RE" -v amean="$GATE_ARTEFACT_MEAN" -v lmean="$GATE_LENIENT_MEAN" -v lmax="$GATE_LENIENT_MAX" -v spct="$GATE_STRICT_OVER_PCT" -v expect="$GATE_EXPECT_LABELS" -v nexp="$runs_ok" '
         /^dudect:/ {
@@ -431,6 +441,7 @@ for cc in $GATE_COMPILERS; do
           exit anyfail
         }' "$work/dudect.raw")"
       dudect_rc=$?
+      [ "$short" -eq 1 ] && dudect_rc=1
       log "  dudect  : $([ $dudect_rc -eq 0 ] && echo PASS || echo FAIL) (N=$runs_ok${GATE_CORE:+, core $GATE_CORE})"
       printf '%s\n' "$agg" | tee -a "$REPORT" >/dev/null
       [ $dudect_rc -ne 0 ] && cc_pass=0

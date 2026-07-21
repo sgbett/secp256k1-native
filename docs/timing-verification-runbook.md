@@ -12,7 +12,7 @@ This is a checklist for re-running the **statistical** constant-time verificatio
 
 ## Why this can't be trusted in the cloud
 
-The `ctgrind` / valgrind secret-poisoning check (run in CI) is **deterministic**: it flags any machine instruction that branches or addresses memory based on a secret, regardless of how noisy the host is. That result is trustworthy anywhere.
+The `ctgrind` / valgrind secret-poisoning check (run on the reference machine and locally via `security/run-checks.sh`; its CI companion is the deterministic assembly-invariant, since ctgrind needs valgrind) is **deterministic**: it flags any machine instruction that branches or addresses memory based on a secret, regardless of how noisy the host is. That result is trustworthy anywhere.
 
 The `dudect` check is **statistical**: it runs the operation tens of thousands of times on two input classes and asks whether the timing distributions differ (|t| < 4.5 ⇒ no detectable leak). On a shared VM, three things corrupt that measurement:
 
