@@ -393,7 +393,12 @@ for cc in $GATE_COMPILERS; do
             # resolve (a weak/rare-bit partial branch < spct% of runs) — and it
             # poisons the secret inputs of ALL FOUR strict ops (ladder,
             # scalar_mul, scalar_reduce, scalar_inv in ctgrind_harness.c), so no
-            # strict label relies on the statistical gate alone. Lenient
+            # strict label relies on the statistical gate alone for the BRANCH
+            # channel. Residual: ctgrind cannot see operand LATENCY, so a
+            # secret-correlated latency leak weak enough to stay < spct% of runs
+            # is not deterministically excluded — but that sits at the noise
+            # floor (a genuine data-dependent effect fires consistently, like the
+            # 17/20 and 9/20 artefacts, not 1/20). See docs/security.md. Lenient
             # ops are gated on the MEAN (the stable signal) against a per-tier
             # bound — the wider amean for the elevated artefact ops (jp_add/fsub),
             # the tighter lmean for the near-flat ones — plus a shared loose max
