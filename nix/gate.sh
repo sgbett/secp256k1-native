@@ -109,6 +109,16 @@ STRICT_RE='^(scalar_multiply_ct_internal|scalar_mul_internal|scalar_reduce|scala
 # every other non-strict op gets the tighter GATE_LENIENT_MEAN.
 ARTEFACT_RE='^(jp_add_internal|fsub_internal)$'
 
+# Fail-closed coverage guard (principle 1: fail closed, not open). The aggregation
+# only iterates labels it actually SAW, so a strict op silently removed/renamed —
+# or a harness that partially crashes yet still emits >=1 dudect line (so the
+# no-output FAIL path is not hit) — would drop out of the gate unnoticed: a
+# missing label yields zero over-threshold runs, which reads as a pass. We assert
+# every EXPECTED label is present and red the gate if any is absent. Keep in
+# lock-step with timing/timing_harness.c: adding a dudect op must add its label
+# here, a deliberate acknowledgement that the gate now covers it.
+GATE_EXPECT_LABELS="scalar_multiply_ct_internal scalar_mul_internal scalar_reduce scalar_inv_internal jp_add_internal fsub_internal fadd_internal fred_internal fneg_internal"
+
 mkdir -p "$GATE_OUT"
 REPORT="$GATE_OUT/timing-report.txt"
 
@@ -266,11 +276,15 @@ for cc in $GATE_COMPILERS; do
   # empty on a distro where the header is already found. Passed EXPLICITLY as a
   # make var because a bare NIX_CFLAGS_COMPILE is ignored by nix's salted
   # cc-wrapper.
-  # NIX_HARDENING_ENABLE="" to match the SHIPPED vanilla codegen (as the extension
-  # build above does): the nix cc-wrapper's default hardening alters codegen, and a
-  # compiler-reconstructed branch is optimisation- AND flag-specific — ctgrind must
-  # exercise the same bytes that ship, or the deterministic backstop verifies the
-  # wrong binary. (Advisory 0001's reconstruction is a vanilla -O2 phenomenon.)
+  # NIX_HARDENING_ENABLE="" to match the SHIPPING-SHAPED vanilla codegen (as the
+  # extension build above does): the nix cc-wrapper's default hardening alters
+  # codegen, and a compiler-reconstructed branch is optimisation- AND flag-specific.
+  # This standalone harness is not byte-identical to a `gem install` build (it adds
+  # stub-build flags and omits per-user mkmf CFLAGS; see docs/security.md), but
+  # building at vanilla -O2 exercises the same optimisation level and hardening-off
+  # codegen that ships — or the deterministic backstop would verify a hardened
+  # binary users do not run. (Advisory 0001's reconstruction is a vanilla -O2
+  # phenomenon.)
   make -C security clean >/dev/null 2>&1
   if NIX_HARDENING_ENABLE="" step make -C security ctgrind CC="$cc" CTGRIND_VG_CFLAGS="${GATE_CTGRIND_VG_CFLAGS:-}" >"$work/ctg.log" 2>&1 \
      && step valgrind -q --error-exitcode=1 ./security/ctgrind_harness >>"$work/ctg.log" 2>&1; then
@@ -283,9 +297,10 @@ for cc in $GATE_COMPILERS; do
   fi
 
   # --- 6. dudect timing, N runs ----------------------------------------------
-  # Vanilla (NIX_HARDENING_ENABLE="") too, so the measured timing is the SHIPPED
-  # codegen's, not the hardened wrapper default — the calibrated bounds must
-  # describe the binary users run.
+  # Vanilla (NIX_HARDENING_ENABLE="") too, so the measured timing is the
+  # shipping-shaped codegen's (same optimisation level + hardening-off, though
+  # not byte-identical — see the ctgrind note above), not the hardened wrapper
+  # default — the calibrated bounds must describe the binary users run.
   make -C timing clean >/dev/null 2>&1
   if ! NIX_HARDENING_ENABLE="" step make -C timing CC="$cc" >"$work/timing.log" 2>&1; then
     log "  dudect  : FAIL — timing harness build failed"; cc_pass=0
@@ -320,7 +335,7 @@ for cc in $GATE_COMPILERS; do
       [ "$runs_ok" -lt "$GATE_DUDECT_RUNS" ] && \
         log "  dudect  : note — only $runs_ok/$GATE_DUDECT_RUNS runs produced output"
       # Aggregate per op: n_over threshold, max|t|, mean|t|; apply strict/lenient.
-      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v artefact="$ARTEFACT_RE" -v amean="$GATE_ARTEFACT_MEAN" -v lmean="$GATE_LENIENT_MEAN" -v lmax="$GATE_LENIENT_MAX" -v spct="$GATE_STRICT_OVER_PCT" '
+      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v artefact="$ARTEFACT_RE" -v amean="$GATE_ARTEFACT_MEAN" -v lmean="$GATE_LENIENT_MEAN" -v lmax="$GATE_LENIENT_MAX" -v spct="$GATE_STRICT_OVER_PCT" -v expect="$GATE_EXPECT_LABELS" '
         /^dudect:/ {
           label=$2; tv=""
           # dudect prints "t=%+9.4f": a standalone "t=" then the value for small
@@ -352,9 +367,9 @@ for cc in $GATE_COMPILERS; do
             # strict (N=2 -> any run over fails). ctgrind (deterministic, vanilla
             # -O2) is the load-bearing backstop for the marginal band this cannot
             # resolve (a weak/rare-bit partial branch < spct% of runs) — and it
-            # poisons ALL FOUR strict ops' secret inputs (ladder, scalar_mul,
-            # scalar_reduce, scalar_inv in ctgrind_harness.c), so no strict label
-            # relies on the statistical gate alone. Lenient
+            # poisons the secret inputs of ALL FOUR strict ops (ladder,
+            # scalar_mul, scalar_reduce, scalar_inv in ctgrind_harness.c), so no
+            # strict label relies on the statistical gate alone. Lenient
             # ops are gated on the MEAN (the stable signal) against a per-tier
             # bound — the wider amean for the elevated artefact ops (jp_add/fsub),
             # the tighter lmean for the near-flat ones — plus a shared loose max
@@ -371,6 +386,14 @@ for cc in $GATE_COMPILERS; do
             if (fail) anyfail=1
             printf "    %-28s runs=%d %d>=%.1f max|t|=%.2f mean|t|=%.2f %s%s\n",
                    l, n[l], ov[l]+0, thr, mx[l], mean, tier, (fail?" <== FAIL":"")
+          }
+          # Fail closed on any EXPECTED label that never appeared (op removed or
+          # renamed, or a partial-run harness): a silently-dropped op — above all a
+          # strict one — must red the gate, never pass by omission.
+          ne = split(expect, elab, " ")
+          for (j=1; j<=ne; j++) if (!(elab[j] in n)) {
+            anyfail=1
+            printf "    %-28s MISSING from dudect output <== FAIL\n", elab[j]
           }
           exit anyfail
         }' "$work/dudect.raw")"
