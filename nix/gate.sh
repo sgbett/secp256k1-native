@@ -64,6 +64,13 @@ GATE_ARTEFACT_MEAN="${GATE_ARTEFACT_MEAN:-35}" # large-artefact ops (jp_add, fsu
 GATE_LENIENT_MEAN="${GATE_LENIENT_MEAN:-15}"   # near-flat field ops (fadd, fred, fneg): tighter mean|t| bound
 GATE_LENIENT_MAX="${GATE_LENIENT_MAX:-100}"    # all lenient ops: loose gross-anomaly backstop (per-run max is noisy)
 GATE_STRICT_OVER_PCT="${GATE_STRICT_OVER_PCT:-5}"  # strict ops: fail if >this% of runs are |t|>=4.5 (tolerate a lone transient)
+# Minimum samples per dudect class. dudect_t_statistic returns a finite 0.0 when
+# a class has <2 samples (dudect.c), which would pass as clean; a broken class
+# generator (all measurements in one class) or a short/degenerate run is rejected
+# by requiring BOTH classes >= this. Default 100: far below the smallest healthy
+# per-class count (scalar_inv ~500/class from 1000 measurements; field ops ~750k),
+# far above the degenerate cases.
+GATE_MIN_CLASS_N="${GATE_MIN_CLASS_N:-100}"
 THRESHOLD="4.5"
 
 # Three tiers, so a currently-flat op can't regress up to the widest bound
@@ -359,20 +366,34 @@ for cc in $GATE_COMPILERS; do
         log "  dudect  : FAIL — only $runs_ok/$GATE_DUDECT_RUNS runs produced output (inconclusive; all $GATE_DUDECT_RUNS required)"
       fi
       # Aggregate per op: n_over threshold, max|t|, mean|t|; apply strict/lenient.
-      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v artefact="$ARTEFACT_RE" -v amean="$GATE_ARTEFACT_MEAN" -v lmean="$GATE_LENIENT_MEAN" -v lmax="$GATE_LENIENT_MAX" -v spct="$GATE_STRICT_OVER_PCT" -v expect="$GATE_EXPECT_LABELS" -v nexp="$runs_ok" '
+      agg="$(awk -v thr="$THRESHOLD" -v strict="$STRICT_RE" -v artefact="$ARTEFACT_RE" -v amean="$GATE_ARTEFACT_MEAN" -v lmean="$GATE_LENIENT_MEAN" -v lmax="$GATE_LENIENT_MAX" -v spct="$GATE_STRICT_OVER_PCT" -v expect="$GATE_EXPECT_LABELS" -v nexp="$runs_ok" -v minn="$GATE_MIN_CLASS_N" '
         /^dudect:/ {
-          label=$2; tv=""
-          # dudect prints "t=%+9.4f": a standalone "t=" then the value for small
-          # |t|, but GLUED ("t=+875.0000") once |t|>=100 drops the pad space — i.e.
-          # exactly a large leak. Match the field starting "t=" and take its
-          # numeric suffix (or the next field), resetting per line so a missed
-          # parse can never carry a previous value forward.
-          for (i=1; i<=NF; i++) if ($i ~ /^t=/) { tv=$i; sub(/^t=/,"",tv); if (tv=="") tv=$(i+1); break }
+          label=$2; tv=""; c0=""; c1=""
+          # Scan fields once for the class counts (n0=/n1=, printed before t=) and
+          # the t-value. dudect prints "t=%+9.4f": a standalone "t=" then the value
+          # for small |t|, but GLUED ("t=+875.0000") once |t|>=100 drops the pad
+          # space — i.e. exactly a large leak. Take the "t=" suffix or the next
+          # field; the tv=="" guard sets it once so a later field cannot overwrite.
+          for (i=1; i<=NF; i++) {
+            if ($i ~ /^t=/ && tv=="") { tv=$i; sub(/^t=/,"",tv); if (tv=="") tv=$(i+1) }
+            else if ($i ~ /^n0=/) { c0=$i; sub(/^n0=/,"",c0) }
+            else if ($i ~ /^n1=/) { c1=$i; sub(/^n1=/,"",c1) }
+          }
           if (tv=="") { bad++; next }
           # Non-finite t (a degenerate Welch denominator prints nan/inf via %f)
           # must fail closed: tv+0 would coerce it to 0 (BSD awk) or nan (gawk)
           # and silently count as a clean sub-threshold run — a fail-open.
           if (tolower(tv) ~ /nan|inf/) { bad++; next }
+          # Under-sampled class: dudect_t_statistic returns a finite 0.0 when a
+          # class has <2 samples, which passes as clean. Reject any line whose
+          # class counts are missing or below minn (a broken class generator that
+          # buckets every measurement into one class, or a degenerate run, has no
+          # valid Welch test). Fail closed. (Residual: the both-zero-variance 0.0
+          # from a constant timer is not distinguishable from a genuinely flat op
+          # in the report, but requires a broken timer and would show across ALL
+          # ops at once.)
+          if (c0=="" || c1=="") { bad++; next }
+          if (c0+0 < minn || c1+0 < minn) { bad++; next }
           a=tv+0; if(a<0)a=-a
           n[label]++; sum[label]+=a; if(a>mx[label])mx[label]=a; if(a>=thr)ov[label]++
         }
