@@ -109,6 +109,8 @@ For production-grade side-channel resistance, use the native C extension. The pu
 
 ### Empirical timing verification
 
+> The **method** for deriving the sample counts — and the *minimum detectable difference* (in ns) the sweep should rule out — from an explicit threat model is set out in [Timing detection floor](timing-detection-floor.md) (including why real-world asset value is only a weak, √-damped lever). The current counts are chosen from relative operation cost; deriving them from that method, and reporting the MDD, is tracked in issue #79.
+
 The C extension's constant-time claims are empirically tested at two levels, which answer different questions:
 
 - **Deterministic (data-flow + disassembly).** Two checks answer *does any secret reach a branch?* without relying on timing. **ctgrind / valgrind** poisons secret inputs and lets Memcheck track data flow to any conditional jump/move or memory address — run on the reference machine and locally via `security/run-checks.sh` (it needs valgrind, so it is not a CI job). A **CT assembly-invariant** disassembles the compiled ladder + `jp_add_internal` and asserts **no forward conditional branch and no `cmov`** in the loop body (the secret-dependent-branch shape) and no out-of-loop escape edge; inner backward jumps — the back-edges of fixed-count inner loops (e.g. the `for i<4` mask loops) — are permitted as data-independent and flagged with a NOTE for review, not asserted absent. This is the deterministic check that runs in **CI** on every push (`.github/workflows/ct-assembly-invariant.yml`), alongside a source-level mask-construction guard (`check-ct-mask-guard.sh`). Both are independent of hardware and noise, so they are trustworthy anywhere — the *primary* constant-time evidence.
