@@ -120,7 +120,7 @@ The counter-intuitive summary: the axis one expects to dominate re-review — ho
 
 Per strict operation, the sweep report should state:
 
-- the two measured class variances and counts (`s₀,n₀`; `s₁,n₁`), and the derived **MDD_99 (ns)** from the general Welch standard error `√(s₀²/n₀ + s₁²/n₁)` — not a single-σ approximation;
+- for each run, the two class variances and counts (`s₀,n₀`; `s₁,n₁`) and the per-run `MDD_99` from the general Welch standard error `√(s₀²/n₀ + s₁²/n₁)` (not a single-σ approximation), reduced across the 20 runs by a **stated rule** — the *maximum* per-run `MDD_99` for the deliberately conservative bound (§1), or the aggregate `≥2/20` gate floor — never an arbitrary or best-case run;
 - the attacker floor `Δ_att` it was calibrated against, and the achieved headroom `Δ_att / MDD_99` (≥ `M` when the condition `MDD_99 ≤ Δ_att / M` holds).
 
 That converts "`|t| < 4.5`" into an attacker-comparable claim — *"rules out a secret-dependent difference ≥ X ns **in the tested class-mean contrast**, ≥ M× below a [network / co-located] attacker's resolution"* (with the §1 scope caveat, and ctgrind as the partition-agnostic branch backstop) — a materially stronger and more honest security statement.
@@ -128,7 +128,7 @@ That converts "`|t| < 4.5`" into an attacker-comparable claim — *"rules out a 
 ## Risk-tolerance defaults (the two knobs to dial)
 
 - **Attacker model → `Δ_att`.** Default to the tighter *co-located* floor rather than the looser network one (conservative; informed, but not linearly scaled, by asset exposure per §5).
-- **Margin `M`.** Lean generous (for "attacks only improve"), but it is *not* free: from §3, `n ∝ M²`, so `M` 10→100 costs 100× the samples. That is cheap for the well-sampled ops, but the binding constraint is the slow strict ops (`scalar_inv`, `scalar_multiply_ct`), where samples are expensive. Choose `M` as large as the slow ops' sample budget allows — not larger.
+- **Margin `M`.** Choose `M` from a documented risk posture — a future-capability horizon for "attacks only improve" — and *derive* `n` from it (§3), not the other way round. It is *not* free: `n ∝ M²`, so `M` 10→100 costs 100× the samples, with the binding constraint on the slow strict ops (`scalar_inv`, `scalar_multiply_ct`). If the derived `n` is infeasible there, that is an explicit tradeoff to surface — report the achieved `M`, or knowingly accept a higher floor — never let the compute budget silently cap the security margin, which would reverse the threat-model-first derivation this document exists to establish.
 
 ## Honest boundary
 
