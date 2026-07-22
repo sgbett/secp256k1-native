@@ -100,7 +100,17 @@ Put real values into the cost-of-check / cost-of-attack / loss trade-off for thi
 
 When loss is catastrophic-and-amortised, attacks monotonically improve, and defence is free, the optimisation collapses to a corner: **tolerate no detectable leak.** So the conservative TVLA/dudect stance is the *output* of the economics, not a naïve alternative to them. The derivation in this document therefore sets **how hard we look** (the sample count / the ruled-out `Δ`), never **how much leak we tolerate** (none detectable).
 
-## 7. What the certificate reports
+## 7. Re-review triggers — and what doesn't
+
+Because a passing sweep is a claim of *absence* (§6) rather than acceptable presence, the calibration is robust to some changes over time and sensitive to others. The distinction is operational — it says when a certificate must be regenerated, and answers the intuitive worry that a rising value at risk should force periodic review.
+
+- **Asset value / price drift → no re-review.** A passing certificate is an absence claim down to the MDD floor; it does not weaken when the value at risk rises, because the code's timing behaviour is a physical fact independent of price. The √-damping (§5) and a generous margin `M` (§3) pre-absorb plausible growth, and the attacker model is chosen conservatively up front — so value movement, however large, does not cross the threshold. This is the axis that does *not* need periodic review.
+- **Toolchain / microarchitecture change → mandatory re-run.** A change to the `(source, compiler, flags)` tuple can reconstruct a leak from branchless source — the advisory-0001 / issue-#25 mechanism, invisible to source review. This is the reference machine's standing re-run trigger (a `nixpkgs`/compiler-revision bump), and it fires on a *change event*, not a calendar. This is the sharp, concrete form of "review over time".
+- **Attacker-capability advances → slow cadence.** Better statistics, hardware, or trace analysis lower the attacker floor `Δ_att` over time (the "attacks only improve" axis). This is precisely what the generous margin `M` buffers; revisit `M` and the attacker model on a long horizon, not per price move.
+
+The counter-intuitive summary: the axis one expects to drive re-review — how much is at stake — is the one that does *not*; the compiler is the one that does.
+
+## 8. What the certificate reports
 
 Per strict operation, the sweep report should state:
 
