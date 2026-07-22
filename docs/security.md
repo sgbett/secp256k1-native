@@ -109,7 +109,7 @@ For production-grade side-channel resistance, use the native C extension. The pu
 
 ### Empirical timing verification
 
-> The sample counts and the *minimum detectable difference* the sweep rules out are derived from an explicit threat model in [Timing detection floor](timing-detection-floor.md) — including why real-world asset value is only a weak, √-damped lever on the target.
+> The **method** for deriving the sample counts — and the *minimum detectable difference* (in ns) the sweep should rule out — from an explicit threat model is set out in [Timing detection floor](timing-detection-floor.md) (including why real-world asset value is only a weak, √-damped lever). The current counts are chosen from relative operation cost; deriving them from that method, and reporting the MDD, is tracked in issue #79.
 
 The C extension's constant-time claims are empirically tested at two levels, which answer different questions:
 
