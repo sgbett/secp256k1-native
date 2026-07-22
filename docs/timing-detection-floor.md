@@ -32,7 +32,9 @@ MDD_τ = τ·σ·√2 / √n ≈ 6.36 · σ / √n
 MDD_power ≈ (τ + z_{1−β})·σ·√2 / √n
 ```
 
-At 99 % power (`z ≈ 2.33`), `MDD_99 ≈ 9.66·σ / √n`. This — not `|t| < 4.5` — is the number the certificate should state: *"this sweep would have caught, with ≥99 % probability, any secret-dependent timing difference ≥ MDD_99 ns."*
+At 99 % power (`z ≈ 2.33`), `MDD_99 ≈ 9.66·σ / √n`. This — not `|t| < 4.5` — is the number the certificate should state: *"this sweep would have caught, with ≥99 % probability, a secret-dependent difference ≥ MDD_99 ns **in the tested class-mean contrast**."* That qualifier is load-bearing:
+
+**What the MDD does and does not bound.** dudect — like TVLA — detects a *first-order* (mean) difference between the *two classes the harness picks* (for the ladder, `k = 1` vs a random scalar). MDD bounds a leak *in that contrast*. By itself it does not bound a leak that correlates with a *different* partition of the secret, that lives in a *higher moment* (a variance rather than a mean difference), or that cancels within the chosen classes. Two things narrow that gap: the classes are chosen to be worst-case for the operation — the `k = 1`-vs-random split maximises the ladder's scalar-dependent infinity-timing contrast, the site of the historical |t| = 875 leak — and **ctgrind covers the branch/addressing channel partition-agnostically** (it flags any secret-dependent branch or address, whatever the partition). What remains is a latency leak in an *untested* partition or moment; that residual is documented, not claimed away.
 
 Three consequences fall straight out of `MDD ∝ σ / √n`:
 
@@ -76,7 +78,7 @@ The security floor is the MDD of the **strict** ops, whose classes are secret-de
 | `scalar_multiply_ct` (ladder) | ~5 000 | (measure) | ~ns |
 | `scalar_inv` (Fermat) | ~500 | (larger — slow op) | **~tens–hundreds of ns** |
 
-`scalar_inv` and `scalar_multiply_ct` are the security-critical strict ops with the *fewest* samples — they are slow, so their counts were kept low — so they carry the only attacker-relevant floor. That is where added samples buy real security. (The `σ` and MDD columns are filled from the calibration measurement; the numbers are illustrative.)
+All four strict ops have secret-derived classes, so all four have an attacker-relevant MDD. `scalar_inv` and `scalar_multiply_ct` are the ones with the *fewest* samples — they are slow, so their counts were kept low — so they are the *likely coarsest* floor and the most likely place added samples buy real security; the calibration's measured `σ` confirms which actually dominates. (The `σ` and MDD columns are filled from that measurement; the numbers are illustrative.)
 
 The field-op standalone tests (`fadd`/`fsub`/… at ~750 000 samples/class) are **not** secret-dependence tests: they compare synthetic operand-magnitude classes and, on GCC 15.1, register a real *non-zero* operand-value artefact (§scope; [security.md](security.md#empirical-timing-verification)). Their very tight sensitivity (~0.1 ns to those synthetic classes) is a diagnostic that the field arithmetic is well-behaved — **not** a secret-dependence floor. Secret correlation for the field/point layer is caught end-to-end by the strict ladder above, so more field-op samples buy diagnostic resolution, not security.
 
@@ -87,7 +89,7 @@ Caveat on interpretation: a *branch*-shaped leak is large (`scalar_inv` skipping
 The natural instinct is to scale the security target by the value at stake (e.g. BSV vs BTC market caps, a ~20× differential). For *this* decision that is mostly the wrong model, for three separate reasons:
 
 - **Wrong unit.** A timing attack recovers *one private key per measured victim*, not the market cap. The loss term is the *distribution of value held per vulnerable key*, which is only loosely coupled to aggregate cap — a low-priced coin with a whale key is a bigger target than a high-priced coin in a dust wallet.
-- **Wrong linearity.** Even where value legitimately buys attacker budget, the effect is √-damped: `Δ_att ∝ 1/√N_att`, so letting `N_att` scale linearly with value turns a **20× value differential into only ~√20 ≈ 4.5×** finer attacker resolution — which the existing margin on the well-sampled ops already absorbs.
+- **Wrong linearity.** Even where value legitimately buys attacker budget, the effect is √-damped: `Δ_att ∝ 1/√N_att`, so letting `N_att` scale linearly with value turns a **20× value differential into only ~√20 ≈ 4.5×** finer attacker resolution — which a generously-chosen `M` would absorb once calibrated (§3; the margin is future #79 work, not an existing calibrated quantity).
 - **Wrong stance — the primitive is asset-agnostic.** `secp256k1` is the same curve for BTC, BCH, Ethereum (ECDSA) and others, and this gem ships as *source* compiled per installation — so it is the same **source contract**, not the same object code, that protects every consumer (the per-user binary is not even predictable, which is exactly why the #25 GCC-15.2 reconstruction mattered). You must calibrate to the **most-valuable / worst-plausible-future** consumer, because you cannot re-flash a shipped library when the price 20×s, and exploit-development cost is amortised across all victims on all chains. Weighting *down* by a lower-cap asset would actively under-protect a higher-value user of the identical source.
 
 Where the instinct *is* sound — and is retained — is narrower: asset value informs **which attacker model** to calibrate against (§3's `Δ_att`, √-damped), and **how to prioritise verification effort** across a portfolio of components (the Common Criteria "target of evaluation" scoping idea). Neither is a linear multiplier on the floor of a given primitive.
@@ -119,12 +121,12 @@ Per strict operation, the sweep report should state:
 - the two measured class variances and counts (`s₀,n₀`; `s₁,n₁`), and the derived **MDD_99 (ns)** from the general Welch standard error `√(s₀²/n₀ + s₁²/n₁)` — not a single-σ approximation;
 - the attacker floor `Δ_att` it was calibrated against, and the achieved headroom `Δ_att / MDD_99` (≥ `M` when the condition `MDD_99 ≤ Δ_att / M` holds).
 
-That converts "`|t| < 4.5`" into an attacker-comparable claim — *"rules out a secret-dependent timing difference ≥ X ns, ≥ M× below a [network / co-located] attacker's resolution"* — which is a materially stronger and more honest security statement.
+That converts "`|t| < 4.5`" into an attacker-comparable claim — *"rules out a secret-dependent difference ≥ X ns **in the tested class-mean contrast**, ≥ M× below a [network / co-located] attacker's resolution"* (with the §1 scope caveat, and ctgrind as the partition-agnostic branch backstop) — a materially stronger and more honest security statement.
 
 ## Risk-tolerance defaults (the two knobs to dial)
 
 - **Attacker model → `Δ_att`.** Default to the tighter *co-located* floor rather than the looser network one (conservative; informed, but not linearly scaled, by asset exposure per §5).
-- **Margin `M`.** Default generous (e.g. 10–100×) because compute is cheap and "attacks only improve"; a large `M` is free insurance here, not a tuned optimum.
+- **Margin `M`.** Lean generous (for "attacks only improve"), but it is *not* free: from §3, `n ∝ M²`, so `M` 10→100 costs 100× the samples. That is cheap for the well-sampled ops, but the binding constraint is the slow strict ops (`scalar_inv`, `scalar_multiply_ct`), where samples are expensive. Choose `M` as large as the slow ops' sample budget allows — not larger.
 
 ## Honest boundary
 
