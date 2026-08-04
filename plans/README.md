@@ -12,6 +12,9 @@ plans also map to the [review report](../docs/security-review-v1.md).
 - [`61-reference-machine-nix.md`](61-reference-machine-nix.md) — [HLR] #61, follow-on to
   #25: codify the bare-metal dudect reference machine as declarative NixOS config (pinned
   toolchain + quiet-machine module + gate command). Forward-looking, not a review fix.
+- [`86-formal-verification.md`](86-formal-verification.md) — #86, post-v1: functional-
+  correctness proof of the field/scalar reductions and multiply (SAW-first, Fermat inverse
+  as a corollary). The H-1 class becomes provably impossible. Forward-looking, not a review fix.
 
 To run the gates these plans reference, see [`docs/running-checks.md`](../docs/running-checks.md):
 Docker covers the three deterministic gates (incl. ctgrind); the dudect timing pass (#25)
