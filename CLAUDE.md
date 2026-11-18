@@ -6,6 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 secp256k1-native is a self-contained Ruby gem implementing secp256k1 elliptic curve cryptography. It has a pure-Ruby implementation with an optional C extension that provides hardware-level constant-time guarantees and significant speedup on hot paths (see [performance](docs/performance.md)). The C extension's primary purpose is security (constant-time field arithmetic on fixed-width limbs); performance is secondary. No external dependencies (no libsecp256k1).
 
+## Git
+
+Git tier: collaborative
+
+Git rules: `.claude/rules/git-workflow.md`, vendored from sgbett/dotfiles-claude; nothing in this repository differs from them.
+
 ## Cryptographic Development Principles
 
 This is a cryptographic library. These principles govern all development decisions — they are not aspirational but describe how this project operates. When a trade-off arises, these principles resolve the ambiguity.
