@@ -20,7 +20,20 @@ doc/
 docs/reference/
 .yardoc/
 docs/_includes/reference-machine/
-.claude/
+
+# .claude/ is local to each machine except the vendored git-workflow rules,
+# push-guard hook and the settings entry that runs it, which every checkout
+# carries; git only applies a negation inside a directory it has not ignored,
+# so the contents are ignored rather than the directory
+.claude/*
+!.claude/rules/
+.claude/rules/*
+!.claude/rules/git-workflow.md
+!.claude/hooks/
+.claude/hooks/*
+!.claude/hooks/push-guard
+!.claude/hooks/push-guard.rb
+!.claude/settings.json
 
 # security-review harness binaries (build with security/Makefile)
 /security/dfuzz
